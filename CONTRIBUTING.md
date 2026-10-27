@@ -31,12 +31,12 @@ fix(ui): 修复退出后标签页标题未还原
 - [ ] 没有新增第三方请求或隐私风险
 - [ ] 已更新 `CHANGELOG.md` 和版本号
 
-## 发布到 Greasy Fork
+## 发布到 Greasy Fork / 脚本猫
 
-油叉自己托管脚本更新，发布到油叉的版本不应带指向 GitHub 的 `@updateURL` / `@downloadURL`。
+这两个站点都自己托管脚本更新，发布版不应带指向 GitHub 的 `@updateURL` / `@downloadURL`。
 
 ```bash
 python scripts/build-greasyfork.py
 ```
 
-上传 `dist/zhihu-word-mode.greasyfork.user.js`，其余代码与主文件一致。
+把 `dist/zhihu-word-mode.greasyfork.user.js` 上传到 Greasy Fork 和脚本猫；其余代码与主文件一致。
