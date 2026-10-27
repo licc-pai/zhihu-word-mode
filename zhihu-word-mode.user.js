@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         知乎 Word 文档模式
 // @namespace    https://github.com/licc-pai/zhihu-word-mode
-// @version      0.3.3
+// @version      0.3.4
+// @author       licc-pai
+// @license      MIT
 // @description  将知乎专栏、问题和回答转换为 Word 365 风格的文档阅读界面
 // @homepageURL  https://github.com/licc-pai/zhihu-word-mode
 // @supportURL   https://github.com/licc-pai/zhihu-word-mode/issues
