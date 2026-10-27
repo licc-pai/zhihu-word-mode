@@ -5,13 +5,19 @@
 <p align="center">把知乎文章变成一份 Word 365 文档。</p>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/licc-pai/zhihu-word-mode/main/zhihu-word-mode.user.js"><strong>安装</strong></a>
+  <a href="https://greasyfork.org/zh-CN/scripts/602452"><strong>Greasy Fork 安装</strong></a>
+  ·
+  <a href="https://raw.githubusercontent.com/licc-pai/zhihu-word-mode/main/zhihu-word-mode.user.js">GitHub 直装</a>
   ·
   <a href="#功能">功能</a>
   ·
   <a href="#使用">使用</a>
   ·
   <a href="CONTRIBUTING.md">贡献</a>
+</p>
+
+<p align="center">
+  <a href="https://greasyfork.org/zh-CN/scripts/602452"><img src="https://img.shields.io/badge/Greasy%20Fork-0.3.4-2f7d4f?style=flat-square" alt="Greasy Fork 0.3.4"></a>
 </p>
 
 ![界面预览](docs/preview.png)
@@ -34,7 +40,9 @@
 ## 安装
 
 1. 先安装 [Tampermonkey](https://www.tampermonkey.net/)。
-2. 点这里安装或更新：[zhihu-word-mode.user.js](https://raw.githubusercontent.com/licc-pai/zhihu-word-mode/main/zhihu-word-mode.user.js)
+2. 任选一种方式安装（两者是同一份脚本，装一个就行）：
+   - **Greasy Fork**：[知乎 Word 文档模式](https://greasyfork.org/zh-CN/scripts/602452)
+   - **GitHub 直装**：[zhihu-word-mode.user.js](https://raw.githubusercontent.com/licc-pai/zhihu-word-mode/main/zhihu-word-mode.user.js)
 3. 篡改猴弹出安装页后点“安装”。
 4. 打开知乎文章或回答页，刷新，点右下角“文档模式”或按 `Alt + W`。
 
