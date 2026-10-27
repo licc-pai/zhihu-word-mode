@@ -30,3 +30,13 @@ fix(ui): 修复退出后标签页标题未还原
 - [ ] 确认评论接口失败时能回退到页面评论
 - [ ] 没有新增第三方请求或隐私风险
 - [ ] 已更新 `CHANGELOG.md` 和版本号
+
+## 发布到 Greasy Fork
+
+油叉自己托管脚本更新，发布到油叉的版本不应带指向 GitHub 的 `@updateURL` / `@downloadURL`。
+
+```bash
+python scripts/build-greasyfork.py
+```
+
+上传 `dist/zhihu-word-mode.greasyfork.user.js`，其余代码与主文件一致。
