@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         知乎 Word 文档模式
 // @namespace    https://github.com/licc-pai/zhihu-word-mode
-// @version      0.3.4
+// @version      0.5.2
 // @author       licc-pai
 // @license      MIT
 // @description  将知乎专栏、问题和回答转换为 Word 365 风格的文档阅读界面
@@ -20,6 +20,7 @@
     const ID = 'zhihu-word-mode';
     const STYLE_ID = `${ID}-style`;
     const STORE_KEY = `${ID}:settings`;
+    const RETURN_KEY = `${ID}:return-answer`;
     const DEFAULTS = { fontSize: 16, lineHeight: 1.9, pageWidth: 800, theme: 'light', zoom: 100, docName: '文档1.docx', includeComments: true };
     let settings = loadSettings();
     let overlay = null;
@@ -27,8 +28,24 @@
     let isOpen = false;
     let lastRoute = location.href;
     let routeTimer = null;
-    let currentSource = null;
+    let currentAnswer = null;
+    let answers = [];
+    let lastFocusedAnswerId = null;
+    let openQuestionId = null;
+    let openAnswerId = null;
+    let openScrollY = 0;
+    let navOpen = false;
+    let pendingAnswerId = null;
+    let pendingTimer = null;
+    let pendingDeadline = 0;
+    let apiState = null;
+    const extraAnswers = new Map();
+    let apiAbort = null;
+    let bodyAbort = null;
+    let answerBodyToken = 0;
+    const API_PAGE_SIZE = 20;
     const commentCache = new Map();
+    const COMMENT_CACHE_LIMIT = 20;
     let commentToken = 0;
 
     function loadSettings() {
@@ -41,6 +58,20 @@
 
     function saveSettings() {
         try { localStorage.setItem(STORE_KEY, JSON.stringify(settings)); } catch {}
+    }
+
+    function markReturnAnswer(id) {
+        try { sessionStorage.setItem(RETURN_KEY, String(id)); } catch {}
+    }
+
+    function takeReturnAnswer() {
+        try {
+            const value = sessionStorage.getItem(RETURN_KEY);
+            sessionStorage.removeItem(RETURN_KEY);
+            return value;
+        } catch {
+            return null;
+        }
     }
 
     const WORD_FAVICON = 'data:image/svg+xml,' + encodeURIComponent(
@@ -182,8 +213,33 @@
             #${ID}-overlay .zwm-editrow .zwm-caret{font-size:6px;color:var(--zwm-muted);margin-left:auto}
             #${ID}-overlay .zwm-collapse{margin-left:auto;width:16px;flex:0 0 16px;display:grid;place-items:center;border:0;background:none;color:var(--zwm-muted);font-size:10px;cursor:default}
 
+            /* ---------- 回答导航 ---------- */
+            #${ID}-overlay .zwm-body{flex:1;min-height:0;display:flex}
+            #${ID}-overlay .zwm-nav{flex:0 0 240px;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--zwm-line);background:var(--zwm-chrome)}
+            #${ID}-overlay .zwm-nav[hidden]{display:none}
+            #${ID}-overlay .zwm-nav-head{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--zwm-line);font:600 12px "Segoe UI","Microsoft YaHei",sans-serif;color:var(--zwm-ink)}
+            #${ID}-overlay .zwm-nav-count{color:var(--zwm-muted);font-weight:400}
+            #${ID}-overlay .zwm-nav-list{flex:1;min-height:0;overflow:auto;padding:6px}
+            #${ID}-overlay .zwm-nav-item{display:block;width:100%;text-align:left;padding:8px 10px;margin:0 0 2px;border-radius:4px;color:var(--zwm-ink);cursor:pointer;font:11px/1.5 "Segoe UI","Microsoft YaHei",sans-serif}
+            #${ID}-overlay .zwm-nav-item:hover{background:var(--zwm-hover)}
+            #${ID}-overlay .zwm-nav-item.zwm-active{background:#e8f0ec;box-shadow:inset 2px 0 #3f7f6c}
+            #${ID}-overlay .zwm-nav-author{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            #${ID}-overlay .zwm-nav-excerpt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--zwm-muted)}
+            #${ID}-overlay .zwm-nav-votes{display:block;margin-top:2px;color:var(--zwm-muted);font-size:10px}
+            #${ID}-overlay .zwm-nav-foot{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px;border-top:1px solid var(--zwm-line)}
+            #${ID}-overlay .zwm-nav-foot[hidden]{display:none}
+            #${ID}-overlay .zwm-nav-status{font-size:10px;line-height:1.4;color:var(--zwm-muted);word-break:break-all}
+            #${ID}-overlay .zwm-nav-load{height:24px;border:1px solid var(--zwm-field-line);border-radius:3px;background:var(--zwm-field);color:var(--zwm-ink);font:11px "Segoe UI","Microsoft YaHei",sans-serif;cursor:pointer}
+            #${ID}-overlay .zwm-nav-load:hover{background:var(--zwm-hover)}
+            #${ID}-overlay .zwm-nav-load:disabled{opacity:.6;cursor:default}
+            #${ID}-overlay .zwm-nav-load[hidden]{display:none}
+            #${ID}-overlay .zwm-answer-note{color:var(--zwm-muted);font-size:12px}
+            #${ID}-overlay .zwm-navtoggle.zwm-on{background:var(--zwm-hover);border-color:var(--zwm-line)}
+            #${ID}-overlay .zwm-navtoggle[hidden]{display:none}
+            #${ID}-overlay.zwm-dark .zwm-nav-item.zwm-active{background:#33413a;box-shadow:inset 2px 0 #6fa88f}
+
             /* ---------- 文档 ---------- */
-            #${ID}-overlay .zwm-docscroll{flex:1;overflow:auto;background:var(--zwm-page-bg);padding:18px 16px 60px}
+            #${ID}-overlay .zwm-docscroll{flex:1;min-width:0;overflow:auto;background:var(--zwm-page-bg);padding:18px 16px 60px}
             #${ID}-overlay .zwm-page{width:min(var(--zwm-page-width),100%);min-height:1080px;margin:0 auto;background:var(--zwm-page);box-shadow:0 1px 3px rgba(0,0,0,.16),0 0 0 1px rgba(0,0,0,.035);padding:70px 80px 90px;font-family:"等线","DengXian","Microsoft YaHei",sans-serif;font-size:var(--zwm-font-size);line-height:var(--zwm-line-height);color:var(--zwm-ink);overflow-wrap:anywhere}
             #${ID}-overlay .zwm-document-title{margin:0 0 14px;font-size:27px;line-height:1.45;font-weight:700;color:var(--zwm-ink);font-family:"等线","DengXian","Microsoft YaHei",sans-serif}
             #${ID}-overlay .zwm-document-meta{margin:0 0 27px;padding-bottom:14px;border-bottom:1px solid var(--zwm-line);font-size:11px;line-height:1.65;color:var(--zwm-muted)}
@@ -259,8 +315,12 @@
             /* ---------- 打印 ---------- */
             @media print{
                 body>*:not(#${ID}-overlay){display:none!important}
-                #${ID}-launcher,#${ID}-overlay .zwm-titlebar,#${ID}-overlay .zwm-tabrow,#${ID}-overlay .zwm-ribbon,#${ID}-overlay .zwm-statusbar,#${ID}-overlay .zwm-settings{display:none!important}
+                #${ID}-launcher,#${ID}-overlay .zwm-titlebar,#${ID}-overlay .zwm-tabrow,#${ID}-overlay .zwm-ribbon,#${ID}-overlay .zwm-statusbar,#${ID}-overlay .zwm-settings,#${ID}-overlay .zwm-nav{display:none!important}
                 #${ID}-overlay{position:static;display:block!important;overflow:visible;background:#fff}
+                #${ID}-overlay.zwm-dark{--zwm-page:#fff;--zwm-page-bg:#fff;--zwm-ink:#222;--zwm-muted:#555;--zwm-line:#dfe5da;--zwm-chrome:#fff;--zwm-ribbon:#fff;--zwm-hover:#fff}
+                #${ID}-overlay.zwm-dark .zwm-article-content pre,#${ID}-overlay.zwm-dark .zwm-article-content blockquote,#${ID}-overlay.zwm-dark .zwm-article-content th{background:#fff!important;color:#222!important;border-color:#ccc!important}
+                #${ID}-overlay.zwm-dark .zwm-article-content a{color:#0b5cad}
+                #${ID}-overlay .zwm-body{display:block!important}
                 #${ID}-overlay .zwm-docscroll{padding:0;background:#fff;overflow:visible}
                 #${ID}-overlay .zwm-page{width:auto;min-height:0;padding:0;box-shadow:none;zoom:1!important}
             }
@@ -269,6 +329,8 @@
             @media(max-width:760px){
                 #${ID}-overlay .zwm-search,#${ID}-overlay .zwm-docname,#${ID}-overlay .zwm-tabactions{display:none}
                 #${ID}-overlay .zwm-page{padding:30px 22px}
+                #${ID}-overlay .zwm-body{position:relative}
+                #${ID}-overlay .zwm-nav{position:absolute;top:0;bottom:0;left:0;z-index:4;width:min(280px,85vw);box-shadow:2px 0 12px rgba(0,0,0,.25)}
                 #${ID}-overlay .zwm-docscroll{padding:10px 6px 40px}
             }
         `;
@@ -277,6 +339,363 @@
 
     function isRelevantPage() {
         return /^https:\/\/(www\.zhihu\.com|zhihu\.com|zhuanlan\.zhihu\.com)\//.test(location.href);
+    }
+
+    const ANSWER_SELECTOR = '.AnswerItem, .AnswerItemV2, [data-testid="answer"]';
+
+    function currentQuestionId() {
+        return location.pathname.match(/\/question\/(\d+)/)?.[1] || null;
+    }
+
+    function isQuestionPage() {
+        return Boolean(currentQuestionId()) || /^\/answer\/\d+/.test(location.pathname);
+    }
+
+    function answerUrl(id) {
+        if (!id) return location.href;
+        const qid = currentQuestionId();
+        const path = qid ? `/question/${qid}/answer/${id}` : `/answer/${id}`;
+        return `${location.origin}${path}${location.search}`;
+    }
+
+    function parseJsonAttr(node, name) {
+        const raw = node.getAttribute(name);
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    }
+
+    function findAnswerToken(value, depth = 0) {
+        if (!value || typeof value !== 'object' || depth > 6) return null;
+        if (value.type === 'answer') {
+            const id = value.token || value.id || value.answer_id || value.itemId;
+            if (id && /^\d+$/.test(String(id))) return String(id);
+        }
+        for (const key of Object.keys(value)) {
+            const found = findAnswerToken(value[key], depth + 1);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    function findAnswerId(node) {
+        const zop = parseJsonAttr(node, 'data-zop');
+        if (zop?.type === 'answer' && zop.itemId) return String(zop.itemId);
+        const own = `${node.id || ''} ${node.getAttribute('name') || ''}`.match(/answer-(\d+)/);
+        if (own) return own[1];
+        const qid = currentQuestionId();
+        const links = [...node.querySelectorAll('a[href*="/answer/"]')]
+            .filter(link => !link.closest('.RichText, .RichContent-inner'));
+        const preferred = qid
+            ? links.find(link => link.getAttribute('href')?.includes(`/question/${qid}/answer/`))
+            : null;
+        const fallback = links[0];
+        const fallbackQid = fallback?.getAttribute('href')?.match(/\/question\/(\d+)\/answer\//)?.[1];
+        const link = preferred || (qid && fallbackQid && fallbackQid !== qid ? null : fallback);
+        const linkMatch = link?.getAttribute('href')?.match(/\/answer\/(\d+)/);
+        if (linkMatch) return linkMatch[1];
+        const extra = findAnswerToken(parseJsonAttr(node, 'data-za-extra-module'));
+        if (extra) return extra;
+        const sibling = node.previousElementSibling;
+        if (sibling?.matches('a[name^="answer-"], [id^="answer-"]')) {
+            const match = `${sibling.id || ''} ${sibling.getAttribute('name') || ''}`.match(/answer-(\d+)/);
+            if (match) return match[1];
+        }
+        return null;
+    }
+
+    function answerContentNode(container) {
+        return container.querySelector('.RichContent-inner .RichText, .RichText.ztext, .RichText') ||
+            container.querySelector('.RichContent-inner') || null;
+    }
+
+    function answerAuthor(container) {
+        const name = container.querySelector('.AuthorInfo-name')?.textContent?.replace(/\s+/g, ' ').trim();
+        if (name) return name;
+        const link = container.querySelector('.ContentItem-meta a[href*="/people/"]');
+        return link?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    }
+
+    function answerTime(container) {
+        return container.querySelector('.ContentItem-time')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    }
+
+    function answerVotes(container) {
+        return container.querySelector('.VoteButton--up, .VoteButton')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    }
+
+    function collectAnswers() {
+        const scope = document.querySelector('main') || document.body;
+        if (!scope) return [];
+        const raw = [...scope.querySelectorAll(ANSWER_SELECTOR)]
+            .filter(node => !node.closest(`#${ID}-overlay`))
+            .filter(node => !node.closest('.QuestionHeader, .Recommendations, .SideBar, .SimilarQuestions'));
+        const found = [];
+        for (const node of raw) {
+            if (found.some(item => item.node === node || item.node.contains(node))) continue;
+            const contentNode = answerContentNode(node);
+            if (!contentNode) continue;
+            const id = findAnswerId(node);
+            if (id && found.some(item => item.id === id)) continue;
+            const text = (contentNode.textContent || '').replace(/\s+/g, ' ').trim();
+            found.push({
+                kind: 'answer',
+                source: 'dom',
+                node,
+                contentNode,
+                id,
+                key: id ? `answer:${id}` : `dom:${found.length}`,
+                author: answerAuthor(node),
+                time: answerTime(node),
+                votes: answerVotes(node),
+                excerpt: Array.from(text).slice(0, 60).join('')
+            });
+        }
+        return found;
+    }
+
+    function intersectsViewport(node) {
+        if (!node?.isConnected) return false;
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.bottom > 0 && rect.top < innerHeight;
+    }
+
+    function answerAtViewport(list) {
+        const mid = innerHeight / 2;
+        let best = null;
+        let bestScore = -Infinity;
+        for (const answer of list) {
+            if (!answer.node?.isConnected) continue;
+            const rect = answer.node.getBoundingClientRect();
+            const visible = Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0);
+            if (visible <= 0) continue;
+            const coversCenter = rect.top <= mid && rect.bottom >= mid;
+            const score = visible + (coversCenter ? 1e6 : 0) - Math.abs(rect.top) * 0.1;
+            if (score > bestScore) {
+                bestScore = score;
+                best = answer;
+            }
+        }
+        return best;
+    }
+
+    function pickDefaultAnswer(list) {
+        if (!list.length) return null;
+        const focused = list.find(answer =>
+            answer.id && answer.id === lastFocusedAnswerId && intersectsViewport(answer.node));
+        if (focused) return focused;
+        const viewport = answerAtViewport(list);
+        if (viewport) return viewport;
+        const target = getContentTarget();
+        const urlAnswer = target?.type === 'answer' && list.find(answer => answer.id === target.id);
+        if (urlAnswer) return urlAnswer;
+        return list[0];
+    }
+
+    function questionIdFromAnswers(list) {
+        const headerLink = document.querySelector('.QuestionHeader a[href*="/question/"]');
+        const headerMatch = headerLink?.getAttribute('href')?.match(/\/question\/(\d+)/);
+        if (headerMatch) return headerMatch[1];
+        for (const answer of list) {
+            if (!answer.node) continue;
+            const links = [...answer.node.querySelectorAll('a[href*="/question/"][href*="/answer/"]')]
+                .filter(link => !link.closest('.RichText, .RichContent-inner'));
+            for (const link of links) {
+                const match = link.getAttribute('href')?.match(/\/question\/(\d+)\/answer\//);
+                if (match) return match[1];
+            }
+        }
+        return null;
+    }
+
+    function formatAnswerTime(timestamp) {
+        if (!timestamp) return '';
+        try {
+            return new Date(timestamp * 1000).toLocaleDateString('zh-CN', {
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            });
+        } catch {
+            return '';
+        }
+    }
+
+    function stripHtml(value) {
+        if (!value) return '';
+        const template = document.createElement('template');
+        template.innerHTML = value;
+        return (template.content.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function answersApiUrl(qid, offset) {
+        const include = 'data[*].excerpt,data[*].author,data[*].voteup_count,data[*].comment_count,data[*].created_time';
+        return `https://www.zhihu.com/api/v4/questions/${qid}/answers?include=${include}&limit=${API_PAGE_SIZE}&offset=${offset}&order_by=default`;
+    }
+
+    function registerApiAnswer(item, qid) {
+        const rawId = item?.id;
+        const id = rawId !== undefined && rawId !== null && /^\d+$/.test(String(rawId)) ? String(rawId) : '';
+        if (!id) return;
+        if (answers.some(answer => answer.source !== 'api' && answer.id === id)) return;
+        const existing = extraAnswers.get(id);
+        extraAnswers.set(id, {
+            kind: 'answer',
+            qid,
+            id,
+            key: `answer:${id}`,
+            source: 'api',
+            node: null,
+            contentNode: null,
+            contentHtml: existing?.contentHtml || '',
+            bodyLoaded: existing?.bodyLoaded || false,
+            bodyLoading: false,
+            author: item.author?.name || existing?.author || '',
+            time: formatAnswerTime(item.created_time || item.updated_time) || existing?.time || '',
+            votes: item.voteup_count ? `${item.voteup_count} 赞` : (existing?.votes || ''),
+            excerpt: stripHtml(item.excerpt) || existing?.excerpt || ''
+        });
+    }
+
+    function placeholderAnswer(id, qid) {
+        const existing = extraAnswers.get(id) || answers.find(answer => answer.id === id);
+        if (existing) return existing;
+        const entry = {
+            kind: 'answer',
+            source: 'api',
+            qid: qid || null,
+            id,
+            key: `answer:${id}`,
+            node: null,
+            contentNode: null,
+            contentHtml: '',
+            bodyLoaded: false,
+            bodyLoading: false,
+            author: '',
+            time: '',
+            votes: '',
+            excerpt: ''
+        };
+        extraAnswers.set(id, entry);
+        return entry;
+    }
+
+    function rebuildAnswers() {
+        const dom = collectAnswers();
+        const domIds = new Set(dom.map(answer => answer.id).filter(Boolean));
+        answers = [...dom, ...[...extraAnswers.values()].filter(answer => !domIds.has(answer.id))];
+        return answers;
+    }
+
+    function resetAnswerFeed() {
+        apiState = null;
+        extraAnswers.clear();
+        if (apiAbort) {
+            apiAbort.abort();
+            apiAbort = null;
+        }
+        if (bodyAbort) {
+            bodyAbort.abort();
+            bodyAbort = null;
+        }
+        answerBodyToken += 1;
+    }
+
+    function initAnswerFeed(qid) {
+        if (!qid) {
+            if (apiState) resetAnswerFeed();
+            return;
+        }
+        if (apiState?.qid === qid) return;
+        resetAnswerFeed();
+        apiState = { qid, offset: 0, total: 0, isEnd: false, loading: false, error: '', blocked: false, cooldownUntil: 0 };
+    }
+
+    function nextOffset(payload, fallback) {
+        const next = payload?.paging?.next;
+        if (!next) return fallback;
+        try {
+            const offset = new URL(next, 'https://www.zhihu.com/').searchParams.get('offset');
+            const value = offset === null ? NaN : Number(offset);
+            return Number.isFinite(value) ? value : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    async function fetchJson(url, signal) {
+        const response = await fetch(url, {
+            credentials: 'include',
+            headers: { 'x-requested-with': 'fetch', accept: 'application/json' },
+            signal
+        });
+        if (!response.ok) {
+            const error = new Error(`HTTP ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
+        const payload = await response.json();
+        if (payload?.error) {
+            const error = new Error(payload.error.message || '接口返回错误');
+            error.status = payload.error.code;
+            error.payloadError = true;
+            throw error;
+        }
+        return payload;
+    }
+
+    function isFeedBlocked(error) {
+        if (!error || error.name === 'AbortError') return false;
+        return error.status === 401 || error.status === 403 || error.payloadError === true;
+    }
+
+    function describeFeedError(error) {
+        if (error?.payloadError) return `接口返回错误：${error.message}`;
+        if (error?.status === 401 || error?.status === 403) return '回答接口不可用（可能需要登录或被风控）';
+        if (error?.status === 429) return '请求过于频繁，请稍后再试';
+        if (error?.name === 'AbortError') return '加载超时，可重试';
+        return error?.message || '加载失败';
+    }
+
+    async function loadAnswersPage({ auto = false } = {}) {
+        if (!apiState || apiState.loading || apiState.isEnd || apiState.blocked || !apiState.qid) return;
+        if (auto && apiState.cooldownUntil && Date.now() < apiState.cooldownUntil) return;
+        const state = apiState;
+        state.loading = true;
+        state.error = '';
+        updateNavFooter();
+        const controller = new AbortController();
+        apiAbort = controller;
+        const timer = setTimeout(() => controller.abort(), 10000);
+        try {
+            const payload = await fetchJson(answersApiUrl(state.qid, state.offset), controller.signal);
+            if (apiState !== state) return;
+            const items = Array.isArray(payload.data) ? payload.data : [];
+            items.forEach(item => registerApiAnswer(item, state.qid));
+            state.offset = nextOffset(payload, state.offset + items.length);
+            state.total = Number(payload.paging?.totals) || state.total;
+            state.isEnd = Boolean(payload.paging?.is_end) || (state.total > 0 && state.offset >= state.total);
+            if (!items.length && !state.isEnd) {
+                state.error = '接口返回空数据，可重试';
+                state.cooldownUntil = Date.now() + 3000;
+            }
+        } catch (error) {
+            if (apiState !== state) return;
+            state.error = describeFeedError(error);
+            if (isFeedBlocked(error)) state.blocked = true;
+            else state.cooldownUntil = Date.now() + 3000;
+            console.warn('[zhihu-word-mode] 加载回答失败:', error);
+        } finally {
+            clearTimeout(timer);
+            if (apiAbort === controller) apiAbort = null;
+            if (apiState === state) {
+                state.loading = false;
+                rebuildAnswers();
+                renderNavList({ preserveScroll: true });
+                updateNavFooter();
+            }
+        }
     }
 
     function addLauncher() {
@@ -323,9 +742,11 @@
             '.QuestionHeader-content', 'article'
         ];
         const found = [];
+        const seen = new Set();
         for (const selector of selectors) {
             document.querySelectorAll(selector).forEach(node => {
-                if (node instanceof HTMLElement && !node.closest(`#${ID}-overlay`)) {
+                if (node instanceof HTMLElement && !node.closest(`#${ID}-overlay`) && !seen.has(node)) {
+                    seen.add(node);
                     const score = scoreCandidate(node);
                     if (score > 0) found.push({ node, score });
                 }
@@ -334,7 +755,7 @@
         found.sort((a, b) => b.score - a.score);
         if (found.length) {
             const best = found[0].node;
-            const nested = found.filter(item => best.contains(item.node));
+            const nested = found.filter(item => item.node !== best && best.contains(item.node));
             if (nested.length && nested[0].score > 0) return nested[0].node;
             return best;
         }
@@ -359,19 +780,24 @@
             'h1[data-testid="question-title"]', 'main h1', 'article h1', 'h1'
         ];
         for (const selector of selectors) {
-            const node = [...document.querySelectorAll(selector)].find(visible);
+            const node = [...document.querySelectorAll(selector)]
+                .find(item => visible(item) && !item.closest(`#${ID}-overlay`));
             const text = node?.innerText?.trim();
             if (text && text.length > 2) return text;
         }
         const og = document.querySelector('meta[property="og:title"]')?.content;
-        return (og || document.title || '知乎文档').replace(/\s*[-|]\s*知乎\s*$/, '').trim();
+        return (og || originalTitle || document.title || '知乎文档').replace(/\s*[-|]\s*知乎\s*$/, '').trim();
     }
 
-    function findMeta() {
+    function findMeta(answer = null) {
+        if (answer) {
+            return [answer.author, answer.time].filter(Boolean).join(' · ') || '知乎回答';
+        }
         const selectors = ['.AuthorInfo-name', '.AuthorInfo', '.Post-Author', '.QuestionHeader-detail', '.ContentItem-time', '.Post-Meta'];
         const parts = [];
         for (const selector of selectors) {
-            const node = [...document.querySelectorAll(selector)].find(visible);
+            const node = [...document.querySelectorAll(selector)]
+                .find(item => visible(item) && !item.closest(`#${ID}-overlay`));
             const text = node?.innerText?.replace(/\s+/g, ' ').trim();
             if (text && !parts.includes(text) && text.length < 180) parts.push(text);
             if (parts.join(' · ').length > 180) break;
@@ -381,7 +807,11 @@
 
     function cleanClone(node) {
         const clone = node.cloneNode(true);
-        clone.querySelectorAll('script,style,button,input,textarea,select,form,[contenteditable="true"],[aria-hidden="true"],[role="toolbar"],.ContentItem-actions,.RichContent-actions,.Comments-container,.CommentListV2').forEach(el => el.remove());
+        clone.querySelectorAll('script,style,iframe,object,embed,button,input,textarea,select,form,[contenteditable="true"],[aria-hidden="true"],[role="toolbar"],.ContentItem-actions,.RichContent-actions,.Comments-container,.CommentListV2').forEach(el => el.remove());
+        clone.querySelectorAll('.RichContent-inner, .RichText').forEach(el => {
+            el.style.maxHeight = 'none';
+            el.style.overflow = 'visible';
+        });
         clone.querySelectorAll('*').forEach(el => {
             [...el.attributes].forEach(attr => {
                 if (attr.name.startsWith('on') || attr.name === 'srcset') el.removeAttribute(attr.name);
@@ -400,13 +830,110 @@
         return clone;
     }
 
+    const ANSWER_TAGS = new Set([
+        'p', 'br', 'hr', 'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins', 'mark', 'sub', 'sup',
+        'blockquote', 'pre', 'code', 'kbd', 'samp', 'var', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'figure', 'figcaption', 'img', 'a', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+        'details', 'summary', 'span', 'div', 'section', 'video', 'source'
+    ]);
+    const ANSWER_DROP_TAGS = new Set([
+        'script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option',
+        'svg', 'math', 'canvas', 'link', 'meta', 'base', 'noscript', 'template'
+    ]);
+    const IMAGE_HOSTS = /(^|\.)(zhimg\.com|zhihu\.com)$/i;
+
+    function safeResourceUrl(value, { image = false } = {}) {
+        if (!value) return null;
+        const raw = String(value).trim();
+        if (!raw || /^(javascript|vbscript|data):/i.test(raw)) return null;
+        let url;
+        try {
+            url = new URL(raw, 'https://www.zhihu.com/');
+        } catch {
+            return null;
+        }
+        if (!/^https?:$/.test(url.protocol)) return null;
+        if (image && !IMAGE_HOSTS.test(url.hostname)) return null;
+        return url.href;
+    }
+
+    function sanitizeAnswerHtml(html) {
+        const template = document.createElement('template');
+        template.innerHTML = html || '';
+        const output = document.createDocumentFragment();
+
+        function copy(node, parent) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                if (node.nodeValue) parent.appendChild(document.createTextNode(node.nodeValue));
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            const tag = node.tagName.toLowerCase();
+            if (ANSWER_DROP_TAGS.has(tag)) return;
+            if (!ANSWER_TAGS.has(tag)) {
+                [...node.childNodes].forEach(child => copy(child, parent));
+                return;
+            }
+            const el = document.createElement(tag);
+            if (tag === 'img') {
+                const src = safeResourceUrl(
+                    node.getAttribute('data-original') || node.getAttribute('data-actualsrc') ||
+                    node.getAttribute('data-src') || node.getAttribute('src'),
+                    { image: true }
+                );
+                if (!src) return;
+                el.setAttribute('src', src);
+                const alt = node.getAttribute('alt');
+                if (alt) el.setAttribute('alt', alt);
+                el.setAttribute('loading', 'lazy');
+            } else if (tag === 'a') {
+                const href = safeResourceUrl(node.getAttribute('href'));
+                if (href) el.setAttribute('href', href);
+                el.setAttribute('target', '_blank');
+                el.setAttribute('rel', 'noopener noreferrer');
+            } else if (tag === 'video' || tag === 'source') {
+                const src = safeResourceUrl(node.getAttribute('src'));
+                if (src) el.setAttribute('src', src);
+                const poster = safeResourceUrl(node.getAttribute('poster'));
+                if (poster) el.setAttribute('poster', poster);
+                if (tag === 'video') el.setAttribute('controls', '');
+            } else if (tag === 'span' && node.getAttribute('data-tex')) {
+                el.textContent = node.getAttribute('data-tex');
+                parent.appendChild(el);
+                return;
+            } else {
+                for (const name of ['colspan', 'rowspan', 'start']) {
+                    const value = node.getAttribute(name);
+                    if (value) el.setAttribute(name, value);
+                }
+            }
+            [...node.childNodes].forEach(child => copy(child, el));
+            parent.appendChild(el);
+        }
+
+        [...template.content.childNodes].forEach(child => copy(child, output));
+        return output;
+    }
+
     function commentScope() {
-        if (!currentSource?.isConnected) return document;
-        return currentSource.closest('.AnswerItem, .ContentItem, .AnswerItemV2, [data-testid="answer"], article, .Post, .QuestionAnswer-content') || document;
+        if (currentAnswer?.kind === 'answer') {
+            return currentAnswer.node?.isConnected ? currentAnswer.node : null;
+        }
+        const node = currentAnswer?.node || null;
+        if (!node?.isConnected) return null;
+        return node.closest('.AnswerItem, .ContentItem, .AnswerItemV2, [data-testid="answer"], article, .Post, .QuestionAnswer-content') || document;
+    }
+
+    function commentTarget() {
+        if (currentAnswer?.kind === 'answer') {
+            return currentAnswer.id ? { type: 'answer', id: currentAnswer.id } : null;
+        }
+        return getContentTarget();
     }
 
     function collectComments() {
         const scope = commentScope();
+        if (!scope) return null;
         for (const selector of ['.CommentItemV2', '.CommentItem', '[data-testid="comment-item"]']) {
             const items = [...scope.querySelectorAll(selector)]
                 .filter(node => !node.closest(`#${ID}-overlay`) && visible(node));
@@ -464,11 +991,13 @@
         }
         page.appendChild(section);
 
-        const target = getContentTarget();
+        const target = commentTarget();
         if (!target) return;
         const key = `${target.type}:${target.id}`;
         const cached = commentCache.get(key);
         if (cached) {
+            commentCache.delete(key);
+            commentCache.set(key, cached);
             renderApiComments(section, cached);
             return;
         }
@@ -606,6 +1135,12 @@
         updateStats();
     }
 
+    function trimCommentCache() {
+        while (commentCache.size > COMMENT_CACHE_LIMIT) {
+            commentCache.delete(commentCache.keys().next().value);
+        }
+    }
+
     async function loadApiComments(section, target, key) {
         const token = ++commentToken;
         try {
@@ -619,24 +1154,29 @@
                 total: Number(payload.paging?.totals) || payload.data.length
             };
             commentCache.set(key, state);
+            trimCommentCache();
             renderApiComments(section, state);
         } catch (err) {
             console.warn('[zhihu-word-mode] 评论接口不可用,使用页面已加载的评论:', err);
             if (!isOpen || token !== commentToken || !section.isConnected) return;
             if (!section.querySelector('.zwm-comment')) {
-                setCommentNote(section, '评论还没有加载。回网页点开评论区,再点「重新识别正文」。');
+                setCommentNote(section, currentAnswer?.source === 'api'
+                    ? '评论接口不可用，可稍后重试。'
+                    : '评论还没有加载。回网页点开评论区,再点「重新识别正文」。');
             }
         }
     }
 
     async function loadMoreComments(section, state) {
+        const token = commentToken;
         try {
             const payload = await fetchCommentsPage(state.target, state.comments.length);
-            if (!isOpen || !section.isConnected) return;
+            if (!isOpen || token !== commentToken || !section.isConnected) return;
             state.comments.push(...payload.data);
             state.isEnd = Boolean(payload.paging?.is_end);
             state.total = Number(payload.paging?.totals) || state.total;
             commentCache.set(state.key, state);
+            trimCommentCache();
             renderApiComments(section, state);
         } catch (err) {
             console.warn('[zhihu-word-mode] 加载更多评论失败:', err);
@@ -669,6 +1209,7 @@
                         <button class="zwm-qbtn" data-action="print" title="打印"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 8V3h10v5"/><rect x="4" y="8" width="16" height="8" rx="1.5"/><path d="M7 14h10v7H7z"/></svg></button>
                         <button class="zwm-qbtn" title="撤销"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 7L4 12l5 5"/><path d="M4 12h9a6 6 0 0 1 6 6"/></svg></button>
                         <button class="zwm-qbtn" title="重做"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 7l5 5-5 5"/><path d="M20 12h-9a6 6 0 0 0-6 6"/></svg></button>
+                        <button class="zwm-qbtn zwm-navtoggle" data-action="toggle-nav" title="回答导航窗格" hidden><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></button>
                     </span>
                     <span class="zwm-docname"></span><span class="zwm-caret">▾</span>
                 </div>
@@ -828,11 +1369,21 @@
                 <button class="zwm-collapse" title="折叠功能区">▾</button>
             </div>
 
-            <div class="zwm-docscroll">
-                <div class="zwm-page">
-                    <h1 class="zwm-document-title"></h1>
-                    <div class="zwm-document-meta"></div>
-                    <div class="zwm-article-content"></div>
+            <div class="zwm-body">
+                <aside class="zwm-nav" hidden>
+                    <div class="zwm-nav-head"><span>回答</span><span class="zwm-nav-count"></span></div>
+                    <div class="zwm-nav-list"></div>
+                    <div class="zwm-nav-foot" hidden>
+                        <span class="zwm-nav-status"></span>
+                        <button class="zwm-nav-load" type="button">加载更多回答</button>
+                    </div>
+                </aside>
+                <div class="zwm-docscroll">
+                    <div class="zwm-page">
+                        <h1 class="zwm-document-title"></h1>
+                        <div class="zwm-document-meta"></div>
+                        <div class="zwm-article-content"></div>
+                    </div>
                 </div>
             </div>
 
@@ -880,6 +1431,23 @@
             const actionNode = event.target.closest('[data-action]');
             if (actionNode) handleAction(actionNode.dataset.action);
             if (event.target.classList.contains('zwm-settings')) closeSettings();
+        });
+
+        overlay.querySelector('.zwm-nav-list').addEventListener('click', event => {
+            const item = event.target.closest('.zwm-nav-item');
+            if (!item) return;
+            const answer = answers.find(entry => entry.key === item.dataset.answerKey);
+            if (!answer) return;
+            selectAnswer(answer, { syncUrl: 'push' });
+            if (window.matchMedia('(max-width: 760px)').matches) setNavOpen(false);
+        });
+
+        overlay.querySelector('.zwm-nav-load').addEventListener('click', loadAnswersPage);
+
+        const navList = overlay.querySelector('.zwm-nav-list');
+        navList.addEventListener('scroll', () => {
+            if (navList.scrollHeight <= navList.clientHeight + 40) return;
+            if (navList.scrollTop + navList.clientHeight >= navList.scrollHeight - 40) loadAnswersPage({ auto: true });
         });
 
         overlay.querySelectorAll('.zwm-tab').forEach(tab => {
@@ -933,18 +1501,251 @@
         return overlay;
     }
 
-    function renderDocument() {
+    function navAvailable() {
+        return answers.length > 1 || Boolean(apiState?.qid);
+    }
+
+    function updateNavFooter() {
+        if (!overlay) return;
+        const foot = overlay.querySelector('.zwm-nav-foot');
+        const status = foot?.querySelector('.zwm-nav-status');
+        const button = foot?.querySelector('.zwm-nav-load');
+        if (!foot || !status || !button) return;
+        if (!apiState?.qid) {
+            foot.hidden = true;
+            return;
+        }
+        foot.hidden = false;
+        if (apiState.error) status.textContent = apiState.error;
+        else if (apiState.loading) status.textContent = '正在加载回答…';
+        else if (apiState.isEnd) status.textContent = apiState.offset ? `已加载全部 ${apiState.offset} 条` : '没有更多回答';
+        else if (apiState.total) status.textContent = `已加载 ${apiState.offset}/${apiState.total}`;
+        else if (apiState.offset) status.textContent = `已加载 ${apiState.offset} 条`;
+        else status.textContent = '可加载页面之外的更多回答';
+        button.hidden = apiState.isEnd || apiState.blocked;
+        button.disabled = apiState.loading;
+        button.textContent = apiState.loading ? '加载中…' : '加载更多回答';
+    }
+
+    function renderNavList({ preserveScroll = false } = {}) {
+        if (!overlay) return;
+        const nav = overlay.querySelector('.zwm-nav');
+        const list = nav?.querySelector('.zwm-nav-list');
+        const count = nav?.querySelector('.zwm-nav-count');
+        const toggle = overlay.querySelector('.zwm-navtoggle');
+        if (!nav || !list) return;
+        const scrollTop = preserveScroll ? list.scrollTop : 0;
+        const available = navAvailable();
+        if (!available) navOpen = false;
+        if (toggle) {
+            toggle.hidden = !available;
+            toggle.classList.toggle('zwm-on', available && navOpen);
+        }
+        nav.hidden = !available || !navOpen;
+        if (count) count.textContent = available ? `(${answers.length})` : '';
+        list.replaceChildren();
+        if (!available) {
+            updateNavFooter();
+            return;
+        }
+        answers.forEach(answer => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'zwm-nav-item';
+            item.dataset.answerKey = answer.key;
+            if (answer.key === currentAnswer?.key) item.classList.add('zwm-active');
+            const author = document.createElement('span');
+            author.className = 'zwm-nav-author';
+            author.textContent = answer.author || '匿名用户';
+            const excerpt = document.createElement('span');
+            excerpt.className = 'zwm-nav-excerpt';
+            excerpt.textContent = answer.excerpt || '（无正文摘要）';
+            item.append(author, excerpt);
+            if (answer.votes) {
+                const votes = document.createElement('span');
+                votes.className = 'zwm-nav-votes';
+                votes.textContent = answer.votes;
+                item.appendChild(votes);
+            }
+            list.appendChild(item);
+        });
+        if (preserveScroll) list.scrollTop = scrollTop;
+        updateNavFooter();
+    }
+
+    function syncNavActive() {
+        if (!overlay) return;
+        overlay.querySelectorAll('.zwm-nav-item').forEach(item => {
+            item.classList.toggle('zwm-active', item.dataset.answerKey === currentAnswer?.key);
+        });
+        overlay.querySelector('.zwm-nav-item.zwm-active')?.scrollIntoView?.({ block: 'nearest' });
+    }
+
+    function setNavOpen(open) {
+        navOpen = Boolean(open) && navAvailable();
+        const nav = overlay?.querySelector('.zwm-nav');
+        if (nav) nav.hidden = !navOpen;
+        overlay?.querySelector('.zwm-navtoggle')?.classList.toggle('zwm-on', navOpen);
+        requestAnimationFrame(updateStats);
+    }
+
+    function toggleNav() {
+        if (!overlay || !navAvailable()) return;
+        setNavOpen(!navOpen);
+    }
+
+    function selectAnswer(answer, options = {}) {
+        if (!answer) return;
+        if (currentAnswer?.key === answer.key && currentAnswer.node === answer.node) {
+            if (answer.source === 'api' && !answer.bodyLoaded) ensureAnswerBody(answer);
+            return;
+        }
+        cancelPendingAnswer();
+        currentAnswer = answer;
+        lastFocusedAnswerId = answer.id || null;
+        updateAnswerDocument(answer);
+        syncNavActive();
+        if (options.syncUrl === 'push') syncAnswerUrl(answer.id, 'push');
+        else if (options.syncUrl === 'replace') syncAnswerUrl(answer.id, 'replace');
+    }
+
+    function updateAnswerMeta(answer) {
+        if (!overlay) return;
+        overlay.querySelector('.zwm-document-title').textContent = findTitle();
+        overlay.querySelector('.zwm-document-meta').textContent = findMeta(answer);
+    }
+
+    function renderAnswerBody(answer) {
+        if (!overlay) return;
+        const holder = overlay.querySelector('.zwm-article-content');
+        if (!holder) return;
+        if (answer.source === 'api') {
+            if (answer.contentHtml) {
+                holder.replaceChildren(sanitizeAnswerHtml(answer.contentHtml));
+            } else {
+                const note = document.createElement('p');
+                note.className = 'zwm-answer-note';
+                note.textContent = answer.bodyLoaded ? '该回答没有可显示的正文。' : '正在加载回答正文…';
+                holder.replaceChildren(note);
+            }
+            return;
+        }
+        holder.replaceChildren(cleanClone(answer.contentNode));
+    }
+
+    async function ensureAnswerBody(answer) {
+        if (answer.source !== 'api' || answer.bodyLoaded || answer.bodyLoading) return;
+        answer.bodyLoading = true;
+        const token = ++answerBodyToken;
+        if (bodyAbort) bodyAbort.abort();
+        const controller = new AbortController();
+        bodyAbort = controller;
+        const timer = setTimeout(() => controller.abort(), 10000);
+        try {
+            const payload = await fetchJson(
+                `https://www.zhihu.com/api/v4/answers/${answer.id}?include=content,author,voteup_count,comment_count,created_time`,
+                controller.signal
+            );
+            clearTimeout(timer);
+            if (token !== answerBodyToken || currentAnswer?.key !== answer.key) return;
+            answer.contentHtml = payload.content || '';
+            answer.bodyLoaded = true;
+            if (!answer.excerpt) answer.excerpt = Array.from(stripHtml(payload.excerpt || payload.content)).slice(0, 60).join('');
+            if (!answer.author && payload.author?.name) answer.author = payload.author.name;
+            if (!answer.time) answer.time = formatAnswerTime(payload.created_time || payload.updated_time);
+            if (!answer.votes && payload.voteup_count) answer.votes = `${payload.voteup_count} 赞`;
+            renderAnswerBody(answer);
+            updateAnswerMeta(answer);
+            renderNavList({ preserveScroll: true });
+            updateStats();
+        } catch (error) {
+            clearTimeout(timer);
+            if (token !== answerBodyToken || currentAnswer?.key !== answer.key) return;
+            const holder = overlay?.querySelector('.zwm-article-content');
+            if (!holder) return;
+            const note = document.createElement('p');
+            note.className = 'zwm-answer-note';
+            note.textContent = `回答正文加载失败：${describeFeedError(error)}`;
+            holder.replaceChildren(note);
+            if (answer.excerpt) {
+                const excerpt = document.createElement('p');
+                excerpt.textContent = answer.excerpt;
+                holder.appendChild(excerpt);
+            }
+        } finally {
+            answer.bodyLoading = false;
+            if (bodyAbort === controller) bodyAbort = null;
+        }
+    }
+
+    function updateAnswerDocument(answer) {
+        if (!overlay || !answer) return;
+        updateAnswerMeta(answer);
+        renderAnswerBody(answer);
+        if (answer.source === 'api') ensureAnswerBody(answer);
+        renderComments();
+        updateStats();
+        const scroller = overlay.querySelector('.zwm-docscroll');
+        if (scroller) {
+            scroller.scrollTop = 0;
+            scroller.scrollLeft = 0;
+        }
+    }
+
+    function syncAnswerUrl(id, mode) {
+        if (!id) return;
+        const url = answerUrl(id);
+        if (location.href === url) return;
+        const baseState = history.state && typeof history.state === 'object' ? history.state : {};
+        const state = { ...baseState, __zwm: true };
+        if (mode === 'push') history.pushState(state, '', url);
+        else history.replaceState(state, '', url);
+        lastRoute = location.href;
+    }
+
+    function openAnswerDocument(answer) {
+        const app = createOverlay();
+        cancelPendingAnswer();
+        const firstOpen = !isOpen;
+        currentAnswer = answer;
+        openQuestionId = currentQuestionId();
+        if (firstOpen) openAnswerId = answer.id || answer.key;
+        if (answer.id) lastFocusedAnswerId = answer.id;
+        initAnswerFeed(currentQuestionId() || questionIdFromAnswers(answers));
+        updateAnswerMeta(answer);
+        renderAnswerBody(answer);
+        if (answer.source === 'api') ensureAnswerBody(answer);
+        renderNavList();
+        renderComments();
+        app.classList.add(`${ID}-visible`);
+        isOpen = true;
+        applySettings();
+        updateStats();
+        const scroller = app.querySelector('.zwm-docscroll');
+        scroller.scrollTop = 0;
+        scroller.scrollLeft = 0;
+        document.documentElement.style.overflow = 'hidden';
+        syncAnswerUrl(answer.id, 'replace');
+        return true;
+    }
+
+    function openArticleDocument() {
         const source = findContent();
         if (!source) {
             alert('暂时没有识别到正文。请等页面内容加载完成后再点“重新识别正文”;如果仍失败,请提供页面类型和控制台错误。');
             return false;
         }
         const app = createOverlay();
-        const title = findTitle();
-        app.querySelector('.zwm-document-title').textContent = title;
+        commitRoute(location.href);
+        resetAnswerFeed();
+        currentAnswer = { kind: 'article', id: null, key: 'article', node: source, contentNode: source, author: '', time: '' };
+        openQuestionId = null;
+        openAnswerId = null;
+        answers = [];
+        app.querySelector('.zwm-document-title').textContent = findTitle();
         app.querySelector('.zwm-document-meta').textContent = findMeta();
-        currentSource = source;
         app.querySelector('.zwm-article-content').replaceChildren(cleanClone(source));
+        renderNavList();
         renderComments();
         app.classList.add(`${ID}-visible`);
         isOpen = true;
@@ -953,6 +1754,31 @@
         app.querySelector('.zwm-docscroll').scrollTop = 0;
         document.documentElement.style.overflow = 'hidden';
         return true;
+    }
+
+    function renderDocument() {
+        if (!isOpen) openScrollY = window.scrollY;
+        const returnId = takeReturnAnswer();
+        if (isQuestionPage()) {
+            answers = rebuildAnswers();
+            const qid = currentQuestionId() || questionIdFromAnswers(answers);
+            initAnswerFeed(qid);
+            const target = getContentTarget();
+            const urlId = target?.type === 'answer' ? target.id : null;
+            const urlAnswer = urlId ? answers.find(answer => answer.id === urlId) : null;
+            if (urlId && !urlAnswer) {
+                const placeholder = placeholderAnswer(urlId, qid);
+                answers = [...answers, placeholder];
+                return openAnswerDocument(placeholder);
+            }
+            if (answers.length) {
+                const preferReturn = Boolean(returnId && urlId === returnId && urlAnswer);
+                const kept = currentAnswer?.kind === 'answer' &&
+                    answers.find(item => item.key === currentAnswer.key);
+                return openAnswerDocument(kept || (preferReturn ? urlAnswer : pickDefaultAnswer(answers)));
+            }
+        }
+        return openArticleDocument();
     }
 
     function applySettings() {
@@ -1023,12 +1849,30 @@
         overlay.querySelector('.zwm-settings').classList.remove('zwm-settings-open');
     }
 
-    function closeMode() {
+    function closeMode(options = {}) {
+        const restoreScroll = options.restoreScroll !== false;
+        cancelPendingAnswer();
         commentToken += 1;
         restorePageIdentity();
+        const answer = currentAnswer;
         if (overlay) overlay.classList.remove(`${ID}-visible`);
         isOpen = false;
         document.documentElement.style.overflow = '';
+        currentAnswer = null;
+        answers = [];
+        resetAnswerFeed();
+        if (!restoreScroll) return;
+        if (answer?.kind === 'answer' && answer.source === 'api' && answer.id) {
+            markReturnAnswer(answer.id);
+            location.assign(answerUrl(answer.id));
+            return;
+        }
+        if (answer?.kind === 'answer' && answer.id && answer.id !== openAnswerId && answer.node?.isConnected) {
+            lastFocusedAnswerId = answer.id;
+            requestAnimationFrame(() => answer.node.scrollIntoView?.({ block: 'start' }));
+        } else {
+            requestAnimationFrame(() => window.scrollTo(0, openScrollY));
+        }
     }
 
     function toggleMode() {
@@ -1050,6 +1894,7 @@
             case 'settings-close': closeSettings(); break;
             case 'font-up': bumpFont(1); break;
             case 'font-down': bumpFont(-1); break;
+            case 'toggle-nav': toggleNav(); break;
             case 'refresh': closeSettings(); renderDocument(); break;
             case 'reset': settings = { ...DEFAULTS }; saveSettings(); applySettings(); break;
         }
@@ -1068,19 +1913,93 @@
         if (!isRelevantPage() || !document.body) return;
         injectStyle();
         addLauncher();
-        if (!overlay?.isConnected && isOpen) isOpen = false;
+        if (isOpen && !overlay?.isConnected) closeMode({ restoreScroll: false });
+    }
+
+    function commitRoute(href) {
+        lastRoute = href;
+        cancelPendingAnswer();
+    }
+
+    function cancelPendingAnswer() {
+        pendingAnswerId = null;
+        pendingDeadline = 0;
+        if (pendingTimer !== null) {
+            clearTimeout(pendingTimer);
+            pendingTimer = null;
+        }
+    }
+
+    function schedulePendingAnswer() {
+        if (pendingTimer !== null) return;
+        if (Date.now() > pendingDeadline) {
+            pendingTimer = null;
+            commitRoute(location.href);
+            closeMode({ restoreScroll: false });
+            ensureInitialized();
+            return;
+        }
+        pendingTimer = setTimeout(() => {
+            pendingTimer = null;
+            if (!isOpen || !pendingAnswerId) return;
+            answers = rebuildAnswers();
+            renderNavList({ preserveScroll: true });
+            const next = answers.find(item => item.id === pendingAnswerId);
+            if (next) {
+                commitRoute(location.href);
+                selectAnswer(next, { syncUrl: false });
+                return;
+            }
+            schedulePendingAnswer();
+        }, 200);
     }
 
     function onRouteChange() {
         if (location.href === lastRoute) return;
-        lastRoute = location.href;
-        closeMode();
+        const href = location.href;
+        if (isOpen && currentAnswer?.kind === 'answer') {
+            const target = getContentTarget();
+            if (target?.type === 'answer') {
+                if (target.id === currentAnswer.id) {
+                    commitRoute(href);
+                    return;
+                }
+                const sameQuestion = openQuestionId
+                    ? currentQuestionId() === openQuestionId
+                    : currentQuestionId() === null;
+                if (sameQuestion) {
+                    answers = rebuildAnswers();
+                    renderNavList({ preserveScroll: true });
+                    const next = answers.find(item => item.id === target.id);
+                    if (next) {
+                        commitRoute(href);
+                        selectAnswer(next, { syncUrl: false });
+                        return;
+                    }
+                    if (pendingAnswerId !== target.id) {
+                        pendingAnswerId = target.id;
+                        pendingDeadline = Date.now() + 3000;
+                    }
+                    schedulePendingAnswer();
+                    return;
+                }
+            }
+        }
+        commitRoute(href);
+        closeMode({ restoreScroll: false });
         ensureInitialized();
     }
 
     function init() {
         ensureInitialized();
         document.addEventListener('keydown', onKeydown, true);
+        document.addEventListener('click', event => {
+            if (isOpen || !isQuestionPage()) return;
+            const node = event.target instanceof Element ? event.target.closest(ANSWER_SELECTOR) : null;
+            if (!node || node.closest(`#${ID}-overlay`)) return;
+            const id = findAnswerId(node);
+            if (id) lastFocusedAnswerId = id;
+        }, true);
         const originalPushState = history.pushState;
         history.pushState = function (...args) {
             const result = originalPushState.apply(this, args);
@@ -1097,8 +2016,11 @@
     }
 
     function queueRouteCheck() {
-        clearTimeout(routeTimer);
-        routeTimer = setTimeout(onRouteChange, 120);
+        if (routeTimer !== null) return;
+        routeTimer = setTimeout(() => {
+            routeTimer = null;
+            onRouteChange();
+        }, 120);
     }
 
     init();
