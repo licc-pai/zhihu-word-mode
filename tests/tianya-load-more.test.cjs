@@ -59,9 +59,14 @@ test('load more button appends the next page', async () => {
 });
 
 test('scroll auto-load loads one page per gesture', async () => {
-  const page1 = makePage({ page: 1, totalPages: 3, totalCount: 5, floors: [{ pid: 1, content: '一楼。' }, { pid: 2, content: '二楼。' }] });
-  const page2 = makePage({ page: 2, totalPages: 3, totalCount: 5, floors: [{ pid: 3, content: '三楼。' }, { pid: 4, content: '四楼。' }] });
-  const page3 = makePage({ page: 3, totalPages: 3, totalCount: 5, floors: [{ pid: 5, content: '五楼。' }] });
+  const page1 = makePage({ page: 1, totalPages: 3, totalCount: 53, floors: [{ pid: 1, content: '一楼。' }, { pid: 2, content: '二楼。' }] });
+  const page2 = makePage({
+    page: 2,
+    totalPages: 3,
+    totalCount: 53,
+    floors: Array.from({ length: 50 }, (_, index) => ({ pid: 3 + index, content: `第 ${3 + index} 楼。` }))
+  });
+  const page3 = makePage({ page: 3, totalPages: 3, totalCount: 53, floors: [{ pid: 53, content: '最后一楼。' }] });
   const { fetch, calls } = makeRouter({ 1: page1, 2: page2, 3: page3 });
   const { window, document, overlay } = await openThread(BASE + '1.html', fetch);
 
@@ -83,7 +88,7 @@ test('scroll auto-load loads one page per gesture', async () => {
   docscroll.dispatchEvent(new window.Event('scroll'));
   await sleep(50);
   assert.equal(postCalls(calls).filter(url => url.includes('page=3')).length, 1);
-  assert.equal(document.querySelectorAll('.zwm-tianya-floor:not(.zwm-tianya-main)').length, 5);
+  assert.equal(document.querySelectorAll('.zwm-tianya-floor:not(.zwm-tianya-main)').length, 53);
 });
 
 test('duplicate floor ids are not rendered twice', async () => {
@@ -95,7 +100,7 @@ test('duplicate floor ids are not rendered twice', async () => {
   overlay.querySelector('.zwm-nav-load').click();
   await sleep(50);
   assert.equal(document.querySelectorAll('.zwm-tianya-floor:not(.zwm-tianya-main)').length, 3);
-  assert.equal(document.querySelectorAll('#floor-2').length, 1);
+  assert.equal(document.querySelectorAll('#zwm-floor-2').length, 1);
   assert.equal(overlay.querySelectorAll('.zwm-tianya-toc-item[data-pid="2"]').length, 1);
 });
 
@@ -129,6 +134,47 @@ test('entry page 2 starts from page 2 and never requests page 1', async () => {
   const posts = postCalls(calls);
   assert.ok(posts.every(url => url.includes('page=2')), posts.join('\n'));
   assert.equal(posts.filter(url => url.includes('page=1')).length, 0);
+});
+
+test('a short page ends pagination even when totalPages is stale', async () => {
+  const page1 = makePage({ page: 1, totalPages: 5, totalCount: 100, floors: [{ pid: 1 }, { pid: 2 }] });
+  const page2 = makePage({
+    page: 2,
+    totalPages: 5,
+    totalCount: 100,
+    floors: Array.from({ length: 10 }, (_, index) => ({ pid: 3 + index }))
+  });
+  const { fetch } = makeRouter({ 1: page1, 2: page2 });
+  const { overlay } = await openThread(BASE + '1.html', fetch);
+  const button = overlay.querySelector('.zwm-nav-load');
+
+  button.click();
+  await sleep(50);
+  assert.equal(button.hidden, true);
+  assert.match(overlay.querySelector('.zwm-nav-status').textContent, /已加载全部/);
+});
+
+test('string pagination page numbers do not break the next request', async () => {
+  const page1 = makePage({ page: 1, totalPages: 3, totalCount: 52, floors: [{ pid: 1 }] });
+  const page2 = makePage({
+    page: 2,
+    totalPages: 3,
+    totalCount: 52,
+    floors: Array.from({ length: 50 }, (_, index) => ({ pid: 2 + index }))
+  });
+  page2.replies.pagination.currentPage = '2';
+  const page3 = makePage({ page: 3, totalPages: 3, totalCount: 52, floors: [{ pid: 52 }] });
+  const { fetch, calls } = makeRouter({ 1: page1, 2: page2, 3: page3 });
+  const { document, overlay } = await openThread(BASE + '1.html', fetch);
+  const button = overlay.querySelector('.zwm-nav-load');
+
+  button.click();
+  await sleep(50);
+  button.click();
+  await sleep(50);
+
+  assert.equal(document.querySelectorAll('.zwm-tianya-floor:not(.zwm-tianya-main)').length, 52);
+  assert.equal(postCalls(calls).filter(url => url.includes('page=3')).length, 1);
 });
 
 test('closing aborts a pending load and does not append its result', async () => {

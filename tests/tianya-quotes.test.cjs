@@ -30,7 +30,7 @@ test('tianya quotes, sub-floors and deleted floors render', async () => {
   document.getElementById('zhihu-word-mode-launcher').click();
   await sleep(60);
 
-  const floor2 = document.getElementById('floor-2');
+  const floor2 = document.getElementById('zwm-floor-2');
   assert.ok(floor2, 'quoted floor should exist');
   assert.equal(floor2.dataset.sub, '1');
   const quote = floor2.querySelector('.zwm-quote');
@@ -41,10 +41,10 @@ test('tianya quotes, sub-floors and deleted floors render', async () => {
   quote.click();
   assert.ok(quote.classList.contains('zwm-expanded'));
 
-  const floor3 = document.getElementById('floor-3');
+  const floor3 = document.getElementById('zwm-floor-3');
   assert.match(floor3.textContent, /引用 #999（未加载）/);
 
-  const floor4 = document.getElementById('floor-4');
+  const floor4 = document.getElementById('zwm-floor-4');
   assert.match(floor4.textContent, /该楼层已被删除/);
   assert.doesNotMatch(floor4.textContent, /不应出现/);
 });

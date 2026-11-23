@@ -2,7 +2,7 @@
   "name": "zhihu-word-mode-tests",
   "private": true,
   "scripts": {
-    "test": "node --test tests/*.test.cjs"
+    "test": "node --test"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"

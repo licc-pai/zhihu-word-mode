@@ -7,7 +7,10 @@ test('tianya thread url exposes the launcher', () => {
     url: 'https://tianya.net/post-legend-11955258-1.html',
     html: '<body></body>'
   });
-  assert.ok(document.getElementById('zhihu-word-mode-launcher'));
+  const launcher = document.getElementById('zhihu-word-mode-launcher');
+  assert.ok(launcher);
+  assert.match(launcher.title, /Word 文档模式/);
+  assert.doesNotMatch(launcher.title, /知乎/);
 });
 
 test('tianya board page does not expose the launcher', () => {

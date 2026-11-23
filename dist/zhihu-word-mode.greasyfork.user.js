@@ -279,7 +279,7 @@
             #${ID}-overlay .zwm-article-content th,#${ID}-overlay .zwm-article-content td{padding:7px 9px;border:1px solid #d9d9d9;text-align:left}
             #${ID}-overlay .zwm-article-content th{background:#f3f3f3}
             #${ID}-overlay .zwm-article-content a{color:#0563c1}
-            #${ID}-overlay .zwm-tianya-floor{border-top:1px solid #eef0ea;margin-top:26px;padding-top:16px}
+            #${ID}-overlay .zwm-tianya-floor{border-top:1px solid var(--zwm-line);margin-top:26px;padding-top:16px}
             #${ID}-overlay .zwm-tianya-floor:first-of-type{border-top:0}
             #${ID}-overlay .zwm-tianya-floor[data-sub="1"]{margin-left:26px;padding-left:14px;border-left:2px solid var(--zwm-line)}
             #${ID}-overlay .zwm-tianya-floor-head{display:flex;align-items:center;gap:7px;margin-bottom:10px;font-size:11px;color:var(--zwm-muted);flex-wrap:wrap}
@@ -763,7 +763,7 @@
         launcher.id = `${ID}-launcher`;
         launcher.type = 'button';
         launcher.textContent = '文档模式';
-        launcher.title = '切换知乎 Word 文档模式(Alt + W)';
+        launcher.title = '切换 Word 文档模式(Alt + W)';
         launcher.addEventListener('click', toggleMode);
         document.body.appendChild(launcher);
     }
@@ -1260,6 +1260,7 @@
     }
 
     function resetTianyaState() {
+        if (tianyaState?.observer) tianyaState.observer.disconnect();
         if (tianyaState?.abort) tianyaState.abort.abort();
         tianyaState = null;
     }
@@ -1400,7 +1401,7 @@
     function createTianyaMainPostElement(state) {
         const section = document.createElement('section');
         section.className = 'zwm-tianya-floor zwm-tianya-main';
-        section.id = 'floor-0';
+        section.id = 'zwm-floor-0';
         section.dataset.pid = '0';
         section.dataset.poster = '1';
         section.appendChild(createTianyaFloorHead('楼主', state.post.author, state.post.postTime, true));
@@ -1435,7 +1436,7 @@
     function createTianyaFloorElement(floor, state) {
         const section = document.createElement('section');
         section.className = 'zwm-tianya-floor';
-        section.id = `floor-${floor.pid}`;
+        section.id = `zwm-floor-${floor.pid}`;
         section.dataset.pid = String(floor.pid);
         section.dataset.poster = floor.author === state.post.author ? '1' : '0';
         if (floor.quotePid) section.dataset.sub = '1';
@@ -1657,16 +1658,18 @@
         try {
             const payload = await fetchTianyaPost(state.postId, nextPage, controller.signal);
             if (tianyaState !== state) return;
-            state.page = payload.replies.pagination.currentPage || nextPage;
+            state.page = Number(payload.replies.pagination.currentPage) || nextPage;
             state.totalPages = Number(payload.replies.pagination.totalPages) || state.totalPages;
             state.totalCount = Number(payload.replies.pagination.totalCount) || state.totalCount;
             const fresh = payload.replies.data.filter(floor => !state.loadedPids.has(Number(floor.pid)));
             appendTianyaFloors(payload.replies.data);
             appendTianyaTocItems(fresh);
             if (state.onlyPoster) setTianyaOnlyPoster(true);
-            state.ended = (state.totalPages > 0 && state.page >= state.totalPages) || payload.replies.data.length === 0;
+            state.ended = (state.totalPages > 0 && state.page >= state.totalPages)
+                || payload.replies.data.length < TIANYA_PAGE_SIZE
+                || payload.replies.data.length === 0;
             if (scroll && fresh.length) {
-                const first = overlay?.querySelector(`#floor-${fresh[0].pid}`);
+            const first = overlay?.querySelector(`.zwm-tianya-floor[data-pid="${fresh[0].pid}"]`);
                 first?.scrollIntoView({ block: 'start', behavior: 'smooth' });
             }
             updateStats();
@@ -1721,6 +1724,8 @@
         const title = document.createElement('p');
         title.className = 'zwm-tianya-error-title';
         title.textContent = '天涯帖子加载失败';
+        const meta = overlay.querySelector('.zwm-document-meta');
+        if (meta) meta.textContent = describeTianyaError(error);
         const message = document.createElement('p');
         message.className = 'zwm-tianya-error-message';
         message.textContent = describeTianyaError(error);
@@ -1769,7 +1774,7 @@
             if (tianyaState !== state) return false;
             state.post = payload.post;
             state.boardId = payload.post.boardId || '';
-            state.page = payload.replies.pagination.currentPage || state.page;
+            state.page = Number(payload.replies.pagination.currentPage) || state.page;
             state.totalPages = Number(payload.replies.pagination.totalPages) || 0;
             state.totalCount = Number(payload.replies.pagination.totalCount) || 0;
             state.ended = state.totalPages > 0 && state.page >= state.totalPages;
@@ -2054,7 +2059,7 @@
         overlay.querySelector('.zwm-nav-list').addEventListener('click', event => {
             const tianyaItem = event.target.closest('.zwm-tianya-toc-item');
             if (tianyaItem) {
-                const target = document.getElementById(`floor-${tianyaItem.dataset.pid}`);
+                const target = overlay?.querySelector(`.zwm-tianya-floor[data-pid="${tianyaItem.dataset.pid}"]`);
                 if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
                 if (window.matchMedia('(max-width: 760px)').matches) setNavOpen(false);
                 return;

@@ -75,6 +75,24 @@ test('tianya not_found shows an error with retry', async () => {
   assert.ok(overlay.querySelector('.zwm-tianya-retry'));
 });
 
+test('tianya threadDeleted clears the loading meta', async () => {
+  const post = makePage({ post: { threadDeleted: true } });
+  const { document } = createWindow({ url: THREAD_URL, html: '<body></body>', fetch: makeFetch({ post }) });
+  const overlay = await open(document);
+  assert.match(overlay.textContent, /帖子不存在或已删除/);
+  assert.doesNotMatch(overlay.querySelector('.zwm-document-meta').textContent, /正在加载/);
+});
+
+test('tianya malformed success payload shows a data error', async () => {
+  const { document } = createWindow({
+    url: THREAD_URL,
+    html: '<body></body>',
+    fetch: makeFetch({ post: { status: 'success' } })
+  });
+  const overlay = await open(document);
+  assert.match(overlay.textContent, /数据异常/);
+});
+
 test('tianya http error shows a retryable message', async () => {
   const { document } = createWindow({
     url: THREAD_URL,

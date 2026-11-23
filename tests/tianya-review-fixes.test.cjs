@@ -31,6 +31,22 @@ async function openThread(url, pages) {
   return { window, document, overlay };
 }
 
+test('closing disconnects the TOC observer', async () => {
+  const page = makePage({ page: 1, totalPages: 1, totalCount: 1, floors: [{ pid: 1 }] });
+  const ctx = createWindow({ url: BASE + '1.html', html: '<body></body>', fetch: makeRouter({ 1: page }) });
+  let disconnected = false;
+  ctx.window.IntersectionObserver = class {
+    constructor() {}
+    observe() {}
+    disconnect() { disconnected = true; }
+  };
+  ctx.document.getElementById('zhihu-word-mode-launcher').click();
+  await sleep(60);
+  const overlay = ctx.document.getElementById('zhihu-word-mode-overlay');
+  overlay.querySelector('[data-action="close"]').click();
+  assert.equal(disconnected, true);
+});
+
 test('only-poster visually hides non-poster TOC items', async () => {
   const page = makePage({
     page: 1,
@@ -87,7 +103,7 @@ test('loaded follow-up floors are observed for TOC highlighting', async () => {
   overlay.querySelector('.zwm-navtoggle').click();
   overlay.querySelector('.zwm-nav-load').click();
   await sleep(60);
-  assert.ok(observed.includes('floor-3'), 'new floor should be observed: ' + observed.join(','));
+  assert.ok(observed.includes('zwm-floor-3'), 'new floor should be observed: ' + observed.join(','));
 });
 
 test('leaving a thread removes the launcher and Alt+W on a board page does nothing', async () => {

@@ -41,7 +41,7 @@ test('tianya floor toc and only-poster filter', async () => {
   assert.equal(items.length, 4, 'toc should contain main post + 3 top-level floors');
   assert.equal(items.filter(item => item.dataset.pid === '3').length, 0, 'sub-floor should not be in toc');
 
-  const floor2 = document.getElementById('floor-2');
+  const floor2 = document.getElementById('zwm-floor-2');
   let scrolled = false;
   floor2.scrollIntoView = () => { scrolled = true; };
   items.find(item => item.dataset.pid === '2').click();
@@ -52,10 +52,10 @@ test('tianya floor toc and only-poster filter', async () => {
   filter.checked = true;
   filter.dispatchEvent(new window.Event('change', { bubbles: true }));
 
-  assert.equal(document.getElementById('floor-2').hidden, true);
-  assert.equal(document.getElementById('floor-4').hidden, true);
-  assert.equal(document.getElementById('floor-1').hidden, false);
-  const floor3 = document.getElementById('floor-3');
+  assert.equal(document.getElementById('zwm-floor-2').hidden, true);
+  assert.equal(document.getElementById('zwm-floor-4').hidden, true);
+  assert.equal(document.getElementById('zwm-floor-1').hidden, false);
+  const floor3 = document.getElementById('zwm-floor-3');
   assert.equal(floor3.hidden, false, 'poster sub-floor should stay visible');
   const quote = floor3.querySelector('.zwm-quote');
   assert.ok(quote, 'quote stays inside the visible poster floor');
@@ -66,5 +66,5 @@ test('tianya floor toc and only-poster filter', async () => {
 
   filter.checked = false;
   filter.dispatchEvent(new window.Event('change', { bubbles: true }));
-  assert.equal(document.getElementById('floor-2').hidden, false);
+  assert.equal(document.getElementById('zwm-floor-2').hidden, false);
 });
