@@ -30,6 +30,7 @@ function createWindow({ url, html, fetch: fetchImpl }) {
     return RECT;
   };
   window.HTMLElement.prototype.scrollIntoView = function () {};
+  window.scrollTo = function () {};
   window.matchMedia = query => ({
     matches: false,
     media: query,

@@ -1280,7 +1280,8 @@
             ended: false,
             error: '',
             abort: null,
-            observer: null
+            observer: null,
+            autoLock: false
         };
         return tianyaState;
     }
@@ -1547,7 +1548,6 @@
         nav.hidden = !navOpen;
         if (filter) filter.hidden = false;
         if (checkbox) checkbox.checked = tianyaState.onlyPoster;
-        if (foot) foot.hidden = true;
         list.replaceChildren();
         if (tianyaState.post) {
             list.appendChild(createTianyaTocItem({
@@ -1568,6 +1568,7 @@
         }
         updateTianyaTocCount();
         syncTianyaNavActive();
+        updateTianyaFooter();
     }
 
     function appendTianyaTocItems(floors) {
@@ -1603,6 +1604,66 @@
         });
         updateTianyaTocCount();
         updateStats();
+    }
+
+    function updateTianyaFooter() {
+        if (!overlay || !tianyaState) return;
+        const foot = overlay.querySelector('.zwm-nav-foot');
+        const status = foot?.querySelector('.zwm-nav-status');
+        const button = foot?.querySelector('.zwm-nav-load');
+        if (!foot || !status || !button) return;
+        foot.hidden = false;
+        const loaded = tianyaState.loadedPids.size;
+        const total = tianyaState.totalCount;
+        if (tianyaState.error) status.textContent = tianyaState.error;
+        else if (tianyaState.loading) status.textContent = '正在加载楼层…';
+        else if (tianyaState.ended) status.textContent = `已加载全部 ${loaded} 楼`;
+        else status.textContent = `已加载 ${loaded} / ${total || '?'} 楼`;
+        button.hidden = tianyaState.ended;
+        button.disabled = tianyaState.loading;
+        button.textContent = tianyaState.loading ? '加载中…' : (tianyaState.error ? '重试' : '加载更多楼层');
+    }
+
+    async function loadTianyaPage({ scroll = false, auto = false } = {}) {
+        const state = tianyaState;
+        if (!state || state.loading || state.ended) return;
+        const nextPage = state.page + 1;
+        if (state.totalPages && nextPage > state.totalPages) {
+            state.ended = true;
+            updateTianyaFooter();
+            return;
+        }
+        state.loading = true;
+        state.error = '';
+        updateTianyaFooter();
+        const controller = new AbortController();
+        state.abort = controller;
+        try {
+            const payload = await fetchTianyaPost(state.postId, nextPage, controller.signal);
+            if (tianyaState !== state) return;
+            state.page = payload.replies.pagination.currentPage || nextPage;
+            state.totalPages = Number(payload.replies.pagination.totalPages) || state.totalPages;
+            state.totalCount = Number(payload.replies.pagination.totalCount) || state.totalCount;
+            const fresh = payload.replies.data.filter(floor => !state.loadedPids.has(Number(floor.pid)));
+            appendTianyaFloors(payload.replies.data);
+            appendTianyaTocItems(fresh);
+            if (state.onlyPoster) setTianyaOnlyPoster(true);
+            state.ended = (state.totalPages > 0 && state.page >= state.totalPages) || payload.replies.data.length === 0;
+            if (scroll && fresh.length) {
+                const first = overlay?.querySelector(`#floor-${fresh[0].pid}`);
+                first?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            }
+            updateStats();
+        } catch (error) {
+            if (tianyaState !== state) return;
+            if (error?.name !== 'AbortError') state.error = describeTianyaError(error);
+        } finally {
+            if (tianyaState === state) {
+                state.loading = false;
+                if (state.abort === controller) state.abort = null;
+                updateTianyaFooter();
+            }
+        }
     }
 
     function updateTianyaHeader(state) {
@@ -1695,6 +1756,7 @@
             state.page = payload.replies.pagination.currentPage || state.page;
             state.totalPages = Number(payload.replies.pagination.totalPages) || 0;
             state.totalCount = Number(payload.replies.pagination.totalCount) || 0;
+            state.ended = state.totalPages > 0 && state.page >= state.totalPages;
             updateTianyaHeader(state);
             content.replaceChildren();
             content.appendChild(createTianyaMainPostElement(state));
@@ -1986,12 +2048,33 @@
             setTianyaOnlyPoster(event.target.checked);
         });
 
-        overlay.querySelector('.zwm-nav-load').addEventListener('click', loadAnswersPage);
+        overlay.querySelector('.zwm-nav-load').addEventListener('click', () => {
+            if (isTianyaThreadPage()) loadTianyaPage({ scroll: true });
+            else loadAnswersPage();
+        });
 
         const navList = overlay.querySelector('.zwm-nav-list');
         navList.addEventListener('scroll', () => {
+            if (isTianyaThreadPage()) return;
             if (navList.scrollHeight <= navList.clientHeight + 40) return;
             if (navList.scrollTop + navList.clientHeight >= navList.scrollHeight - 40) loadAnswersPage({ auto: true });
+        });
+
+        const docscroll = overlay.querySelector('.zwm-docscroll');
+        docscroll.addEventListener('scroll', () => {
+            if (!isTianyaThreadPage() || !tianyaState) return;
+            const nearBottom = docscroll.scrollTop + docscroll.clientHeight >= docscroll.scrollHeight - 200;
+            if (!nearBottom) {
+                if (docscroll.scrollTop + docscroll.clientHeight < docscroll.scrollHeight - 400) {
+                    tianyaState.autoLock = false;
+                }
+                return;
+            }
+            if (docscroll.scrollTop <= 0) return;
+            if (tianyaState.loading || tianyaState.ended || tianyaState.error) return;
+            if (tianyaState.autoLock) return;
+            tianyaState.autoLock = true;
+            loadTianyaPage({ auto: true });
         });
 
         overlay.querySelectorAll('.zwm-tab').forEach(tab => {
