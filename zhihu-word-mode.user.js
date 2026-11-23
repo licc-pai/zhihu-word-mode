@@ -4,7 +4,7 @@
 // @version      0.5.3
 // @author       licc-pai
 // @license      MIT
-// @description  将知乎专栏、问题和回答转换为 Word 365 风格的文档阅读界面
+// @description  将知乎专栏、问题和回答，以及天涯帖子转换为 Word 365 风格的文档阅读界面
 // @homepageURL  https://github.com/licc-pai/zhihu-word-mode
 // @supportURL   https://github.com/licc-pai/zhihu-word-mode/issues
 // @updateURL    https://raw.githubusercontent.com/licc-pai/zhihu-word-mode/main/zhihu-word-mode.user.js
@@ -12,6 +12,8 @@
 // @match        https://zhihu.com/*
 // @match        https://www.zhihu.com/*
 // @match        https://zhuanlan.zhihu.com/*
+// @match        https://tianya.net/*
+// @match        https://www.tianya.net/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -341,7 +343,22 @@
         (document.head || document.documentElement).appendChild(style);
     }
 
+    function isTianyaHost() {
+        return /(^|\.)tianya\.net$/i.test(location.hostname);
+    }
+
+    function parseTianyaThreadUrl(pathname = location.pathname) {
+        const match = pathname.match(/\/post-([a-zA-Z0-9]+)-(\d+)-(\d+)\.html/);
+        if (!match) return null;
+        return { boardAlias: match[1], postId: match[2], page: Math.max(1, Number(match[3])) };
+    }
+
+    function isTianyaThreadPage() {
+        return isTianyaHost() && Boolean(parseTianyaThreadUrl());
+    }
+
     function isRelevantPage() {
+        if (isTianyaHost()) return isTianyaThreadPage();
         return /^https:\/\/(www\.zhihu\.com|zhihu\.com|zhuanlan\.zhihu\.com)\//.test(location.href);
     }
 
