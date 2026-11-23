@@ -238,6 +238,7 @@
             #${ID}-overlay .zwm-tianya-filter label{display:flex;align-items:center;gap:6px;cursor:pointer}
             #${ID}-overlay .zwm-tianya-filter input{accent-color:#2b579a}
             #${ID}-overlay .zwm-tianya-toc-item{display:block;width:100%;text-align:left;padding:7px 9px;margin:0 0 2px;border:0;border-radius:4px;background:none;color:var(--zwm-ink);cursor:pointer;font:11px/1.5 "Segoe UI","Microsoft YaHei",sans-serif}
+            #${ID}-overlay .zwm-tianya-toc-item[hidden]{display:none}
             #${ID}-overlay .zwm-tianya-toc-item:hover{background:var(--zwm-hover)}
             #${ID}-overlay .zwm-tianya-toc-item.zwm-active{background:#e8f0ec;box-shadow:inset 2px 0 #3f7f6c}
             #${ID}-overlay .zwm-tianya-toc-line{display:flex;align-items:center;gap:6px;margin-bottom:1px}
@@ -1472,12 +1473,18 @@
             tianyaState.loadedPids.add(pid);
             tianyaState.floors.push(floor);
             tianyaState.floorMap.set(pid, floor);
-            content.appendChild(createTianyaFloorElement(floor, tianyaState));
+            const section = createTianyaFloorElement(floor, tianyaState);
+            content.appendChild(section);
+            if (tianyaState.observer) tianyaState.observer.observe(section);
         }
     }
 
     function tianyaExcerpt(text, size = 42) {
         return String(text || '').replace(/\s+/g, ' ').trim().slice(0, size);
+    }
+
+    function tianyaFloorExcerpt(floor) {
+        return floor.deleted ? '该楼层已被删除' : tianyaExcerpt(floor.content);
     }
 
     function createTianyaTocItem({ pid, author, poster, excerpt }) {
@@ -1540,6 +1547,14 @@
         const checkbox = overlay.querySelector('.zwm-tianya-only-poster');
         const foot = overlay.querySelector('.zwm-nav-foot');
         if (!nav || !head || !list) return;
+        if (!tianyaState.floors.length) {
+            if (toggle) toggle.hidden = true;
+            nav.hidden = true;
+            if (filter) filter.hidden = true;
+            if (foot) foot.hidden = true;
+            list.replaceChildren();
+            return;
+        }
         head.textContent = '楼层';
         if (toggle) {
             toggle.hidden = false;
@@ -1564,7 +1579,7 @@
                 pid: floor.pid,
                 author: floor.author,
                 poster: floor.author === tianyaState.post.author,
-                excerpt: tianyaExcerpt(floor.content)
+                excerpt: tianyaFloorExcerpt(floor)
             }));
         }
         updateTianyaTocCount();
@@ -1582,7 +1597,7 @@
                 pid: floor.pid,
                 author: floor.author,
                 poster: floor.author === tianyaState.post.author,
-                excerpt: tianyaExcerpt(floor.content)
+                excerpt: tianyaFloorExcerpt(floor)
             }));
         }
         updateTianyaTocCount();
@@ -1762,6 +1777,12 @@
             content.replaceChildren();
             content.appendChild(createTianyaMainPostElement(state));
             appendTianyaFloors(payload.replies.data);
+            if (!state.floors.length) {
+                const empty = document.createElement('p');
+                empty.className = 'zwm-tianya-note';
+                empty.textContent = '暂无回复。';
+                content.appendChild(empty);
+            }
             renderTianyaNav();
             state.boardName = await fetchTianyaBoardName(state.boardId, controller.signal);
             if (tianyaState !== state) return false;
@@ -2417,6 +2438,7 @@
     }
 
     function renderDocument() {
+        if (!isRelevantPage()) return false;
         if (!isOpen) openScrollY = window.scrollY;
         const returnId = takeReturnAnswer();
         if (isTianyaThreadPage()) return renderTianyaDocument();
@@ -2546,6 +2568,7 @@
     }
 
     function toggleMode() {
+        if (!isRelevantPage()) return;
         if (isOpen) closeMode();
         else renderDocument();
     }
@@ -2580,7 +2603,12 @@
     }
 
     function ensureInitialized() {
-        if (!isRelevantPage() || !document.body) return;
+        if (!document.body) return;
+        if (!isRelevantPage()) {
+            document.getElementById(`${ID}-launcher`)?.remove();
+            launcher = null;
+            return;
+        }
         injectStyle();
         addLauncher();
         if (isOpen && !overlay?.isConnected) closeMode({ restoreScroll: false });
