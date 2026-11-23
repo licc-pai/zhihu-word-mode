@@ -233,6 +233,18 @@
             #${ID}-overlay .zwm-nav-author{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             #${ID}-overlay .zwm-nav-excerpt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--zwm-muted)}
             #${ID}-overlay .zwm-nav-votes{display:block;margin-top:2px;color:var(--zwm-muted);font-size:10px}
+            #${ID}-overlay .zwm-tianya-filter{flex:0 0 auto;padding:8px 12px;border-bottom:1px solid var(--zwm-line);color:var(--zwm-muted);font-size:11px}
+            #${ID}-overlay .zwm-tianya-filter[hidden]{display:none}
+            #${ID}-overlay .zwm-tianya-filter label{display:flex;align-items:center;gap:6px;cursor:pointer}
+            #${ID}-overlay .zwm-tianya-filter input{accent-color:#2b579a}
+            #${ID}-overlay .zwm-tianya-toc-item{display:block;width:100%;text-align:left;padding:7px 9px;margin:0 0 2px;border:0;border-radius:4px;background:none;color:var(--zwm-ink);cursor:pointer;font:11px/1.5 "Segoe UI","Microsoft YaHei",sans-serif}
+            #${ID}-overlay .zwm-tianya-toc-item:hover{background:var(--zwm-hover)}
+            #${ID}-overlay .zwm-tianya-toc-item.zwm-active{background:#e8f0ec;box-shadow:inset 2px 0 #3f7f6c}
+            #${ID}-overlay .zwm-tianya-toc-line{display:flex;align-items:center;gap:6px;margin-bottom:1px}
+            #${ID}-overlay .zwm-tianya-toc-no{color:#3f7f6c;font-weight:600;font-variant-numeric:tabular-nums}
+            #${ID}-overlay .zwm-tianya-toc-author{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            #${ID}-overlay .zwm-tianya-toc-excerpt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--zwm-muted)}
+            #${ID}-overlay.zwm-dark .zwm-tianya-toc-item.zwm-active{background:#33413a;box-shadow:inset 2px 0 #6fa88f}
             #${ID}-overlay .zwm-nav-foot{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px;border-top:1px solid var(--zwm-line)}
             #${ID}-overlay .zwm-nav-foot[hidden]{display:none}
             #${ID}-overlay .zwm-nav-status{font-size:10px;line-height:1.4;color:var(--zwm-muted);word-break:break-all}
@@ -1267,7 +1279,8 @@
             loading: false,
             ended: false,
             error: '',
-            abort: null
+            abort: null,
+            observer: null
         };
         return tianyaState;
     }
@@ -1461,6 +1474,137 @@
         }
     }
 
+    function tianyaExcerpt(text, size = 42) {
+        return String(text || '').replace(/\s+/g, ' ').trim().slice(0, size);
+    }
+
+    function createTianyaTocItem({ pid, author, poster, excerpt }) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'zwm-tianya-toc-item';
+        item.dataset.pid = String(pid);
+        item.dataset.poster = poster ? '1' : '0';
+        const line = document.createElement('span');
+        line.className = 'zwm-tianya-toc-line';
+        const no = document.createElement('span');
+        no.className = 'zwm-tianya-toc-no';
+        no.textContent = String(pid) === '0' ? '楼主' : `#${pid}`;
+        const name = document.createElement('span');
+        name.className = 'zwm-tianya-toc-author';
+        name.textContent = author || '匿名用户';
+        line.append(no, name);
+        const excerptEl = document.createElement('span');
+        excerptEl.className = 'zwm-tianya-toc-excerpt';
+        excerptEl.textContent = excerpt || '（无正文摘要）';
+        item.append(line, excerptEl);
+        return item;
+    }
+
+    function updateTianyaTocCount() {
+        if (!overlay || !tianyaState) return;
+        const count = overlay.querySelector('.zwm-nav-count');
+        if (!count) return;
+        const visible = overlay.querySelectorAll('.zwm-tianya-toc-item:not([hidden])').length;
+        count.textContent = `(${visible})`;
+    }
+
+    function syncTianyaNavActive() {
+        if (!overlay || !tianyaState) return;
+        if (tianyaState.observer) {
+            tianyaState.observer.disconnect();
+            tianyaState.observer = null;
+        }
+        if (typeof IntersectionObserver === 'undefined') return;
+        const root = overlay.querySelector('.zwm-docscroll');
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                overlay.querySelectorAll('.zwm-tianya-toc-item').forEach(item => {
+                    item.classList.toggle('zwm-active', item.dataset.pid === entry.target.dataset.pid);
+                });
+            });
+        }, { root, rootMargin: '-15% 0px -75% 0px', threshold: 0 });
+        tianyaState.observer = observer;
+        overlay.querySelectorAll('.zwm-tianya-floor').forEach(el => observer.observe(el));
+    }
+
+    function renderTianyaNav() {
+        if (!overlay || !tianyaState) return;
+        const nav = overlay.querySelector('.zwm-nav');
+        const head = nav?.querySelector('.zwm-nav-head span');
+        const list = nav?.querySelector('.zwm-nav-list');
+        const toggle = overlay.querySelector('.zwm-navtoggle');
+        const filter = overlay.querySelector('.zwm-tianya-filter');
+        const checkbox = overlay.querySelector('.zwm-tianya-only-poster');
+        const foot = overlay.querySelector('.zwm-nav-foot');
+        if (!nav || !head || !list) return;
+        head.textContent = '楼层';
+        if (toggle) {
+            toggle.hidden = false;
+            toggle.title = '楼层目录';
+            toggle.classList.toggle('zwm-on', navOpen);
+        }
+        nav.hidden = !navOpen;
+        if (filter) filter.hidden = false;
+        if (checkbox) checkbox.checked = tianyaState.onlyPoster;
+        if (foot) foot.hidden = true;
+        list.replaceChildren();
+        if (tianyaState.post) {
+            list.appendChild(createTianyaTocItem({
+                pid: 0,
+                author: tianyaState.post.author,
+                poster: true,
+                excerpt: tianyaExcerpt(tianyaState.post.content)
+            }));
+        }
+        for (const floor of tianyaState.floors) {
+            if (floor.quotePid) continue;
+            list.appendChild(createTianyaTocItem({
+                pid: floor.pid,
+                author: floor.author,
+                poster: floor.author === tianyaState.post.author,
+                excerpt: tianyaExcerpt(floor.content)
+            }));
+        }
+        updateTianyaTocCount();
+        syncTianyaNavActive();
+    }
+
+    function appendTianyaTocItems(floors) {
+        if (!overlay || !tianyaState) return;
+        const list = overlay.querySelector('.zwm-nav-list');
+        if (!list) return;
+        for (const floor of floors) {
+            if (floor.quotePid) continue;
+            list.appendChild(createTianyaTocItem({
+                pid: floor.pid,
+                author: floor.author,
+                poster: floor.author === tianyaState.post.author,
+                excerpt: tianyaExcerpt(floor.content)
+            }));
+        }
+        updateTianyaTocCount();
+    }
+
+    function setTianyaOnlyPoster(value) {
+        if (!overlay || !tianyaState) return;
+        tianyaState.onlyPoster = Boolean(value);
+        const checkbox = overlay.querySelector('.zwm-tianya-only-poster');
+        if (checkbox) checkbox.checked = tianyaState.onlyPoster;
+        overlay.querySelectorAll('.zwm-tianya-floor').forEach(el => {
+            if (el.classList.contains('zwm-tianya-main')) {
+                el.hidden = false;
+                return;
+            }
+            el.hidden = tianyaState.onlyPoster && el.dataset.poster !== '1';
+        });
+        overlay.querySelectorAll('.zwm-tianya-toc-item').forEach(item => {
+            item.hidden = tianyaState.onlyPoster && item.dataset.poster !== '1';
+        });
+        updateTianyaTocCount();
+        updateStats();
+    }
+
     function updateTianyaHeader(state) {
         if (!overlay || !state?.post) return;
         const title = overlay.querySelector('.zwm-document-title');
@@ -1489,6 +1633,12 @@
         if (!overlay) return;
         const content = overlay.querySelector('.zwm-article-content');
         if (!content) return;
+        const nav = overlay.querySelector('.zwm-nav');
+        if (nav) nav.hidden = true;
+        const navToggle = overlay.querySelector('.zwm-navtoggle');
+        if (navToggle) navToggle.hidden = true;
+        const filter = overlay.querySelector('.zwm-tianya-filter');
+        if (filter) filter.hidden = true;
         const box = document.createElement('div');
         box.className = 'zwm-tianya-error';
         const title = document.createElement('p');
@@ -1529,6 +1679,8 @@
         if (nav) nav.hidden = true;
         const navToggle = app.querySelector('.zwm-navtoggle');
         if (navToggle) navToggle.hidden = true;
+        const filter = app.querySelector('.zwm-tianya-filter');
+        if (filter) filter.hidden = true;
         app.classList.add(`${ID}-visible`);
         isOpen = true;
         applySettings();
@@ -1547,6 +1699,7 @@
             content.replaceChildren();
             content.appendChild(createTianyaMainPostElement(state));
             appendTianyaFloors(payload.replies.data);
+            renderTianyaNav();
             state.boardName = await fetchTianyaBoardName(state.boardId, controller.signal);
             if (tianyaState !== state) return false;
             updateTianyaHeader(state);
@@ -1749,6 +1902,9 @@
             <div class="zwm-body">
                 <aside class="zwm-nav" hidden>
                     <div class="zwm-nav-head"><span>回答</span><span class="zwm-nav-count"></span></div>
+                    <div class="zwm-tianya-filter" hidden>
+                        <label><input type="checkbox" class="zwm-tianya-only-poster">只看楼主</label>
+                    </div>
                     <div class="zwm-nav-list"></div>
                     <div class="zwm-nav-foot" hidden>
                         <span class="zwm-nav-status"></span>
@@ -1811,12 +1967,23 @@
         });
 
         overlay.querySelector('.zwm-nav-list').addEventListener('click', event => {
+            const tianyaItem = event.target.closest('.zwm-tianya-toc-item');
+            if (tianyaItem) {
+                const target = document.getElementById(`floor-${tianyaItem.dataset.pid}`);
+                if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                if (window.matchMedia('(max-width: 760px)').matches) setNavOpen(false);
+                return;
+            }
             const item = event.target.closest('.zwm-nav-item');
             if (!item) return;
             const answer = answers.find(entry => entry.key === item.dataset.answerKey);
             if (!answer) return;
             selectAnswer(answer, { syncUrl: 'push' });
             if (window.matchMedia('(max-width: 760px)').matches) setNavOpen(false);
+        });
+
+        overlay.querySelector('.zwm-tianya-only-poster').addEventListener('change', event => {
+            setTianyaOnlyPoster(event.target.checked);
         });
 
         overlay.querySelector('.zwm-nav-load').addEventListener('click', loadAnswersPage);
@@ -1879,6 +2046,7 @@
     }
 
     function navAvailable() {
+        if (isTianyaThreadPage()) return Boolean(tianyaState?.floors?.length);
         return answers.length > 1 || Boolean(apiState?.qid);
     }
 
@@ -1906,6 +2074,12 @@
 
     function renderNavList({ preserveScroll = false } = {}) {
         if (!overlay) return;
+        const head = overlay.querySelector('.zwm-nav-head span');
+        if (head) head.textContent = '回答';
+        const filter = overlay.querySelector('.zwm-tianya-filter');
+        if (filter) filter.hidden = true;
+        const navToggle = overlay.querySelector('.zwm-navtoggle');
+        if (navToggle) navToggle.title = '回答导航窗格';
         const nav = overlay.querySelector('.zwm-nav');
         const list = nav?.querySelector('.zwm-nav-list');
         const count = nav?.querySelector('.zwm-nav-count');
