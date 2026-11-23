@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         知乎 Word 文档模式
 // @namespace    https://github.com/licc-pai/zhihu-word-mode
-// @version      0.5.2
+// @version      0.5.3
 // @author       licc-pai
 // @license      MIT
 // @description  将知乎专栏、问题和回答转换为 Word 365 风格的文档阅读界面
@@ -244,14 +244,16 @@
             #${ID}-overlay .zwm-document-title{margin:0 0 14px;font-size:27px;line-height:1.45;font-weight:700;color:var(--zwm-ink);font-family:"等线","DengXian","Microsoft YaHei",sans-serif}
             #${ID}-overlay .zwm-document-meta{margin:0 0 27px;padding-bottom:14px;border-bottom:1px solid var(--zwm-line);font-size:11px;line-height:1.65;color:var(--zwm-muted)}
             #${ID}-overlay .zwm-article-content p{margin:0 0 .95em;text-align:justify}
-            #${ID}-overlay .zwm-article-content h1,#${ID}-overlay .zwm-article-content h2,#${ID}-overlay .zwm-article-content h3,#${ID}-overlay .zwm-article-content h4{margin:1.4em 0 .65em;color:var(--zwm-ink);line-height:1.45;font-weight:650}
+            #${ID}-overlay .zwm-article-content{line-height:var(--zwm-line-height)!important}
+            #${ID}-overlay .zwm-article-content *{line-height:inherit!important}
+            #${ID}-overlay .zwm-article-content h1,#${ID}-overlay .zwm-article-content h2,#${ID}-overlay .zwm-article-content h3,#${ID}-overlay .zwm-article-content h4{margin:1.4em 0 .65em;color:var(--zwm-ink);line-height:1.45!important;font-weight:650}
             #${ID}-overlay .zwm-article-content h1{font-size:1.65em}
             #${ID}-overlay .zwm-article-content h2{font-size:1.4em}
             #${ID}-overlay .zwm-article-content h3{font-size:1.18em}
             #${ID}-overlay .zwm-article-content img,#${ID}-overlay .zwm-article-content video{max-width:100%;height:auto}
             #${ID}-overlay .zwm-article-content img{display:block;margin:1.2em auto;object-fit:contain}
             #${ID}-overlay .zwm-article-content blockquote{margin:1.2em 0;padding:8px 18px;border-left:3px solid #b9cbe4;color:#555;background:#f8f9fb}
-            #${ID}-overlay .zwm-article-content pre{padding:14px;overflow:auto;border-radius:4px;background:#f5f5f5;border:1px solid #e4e4e4;font:.86em/1.6 Consolas,"Courier New",monospace}
+            #${ID}-overlay .zwm-article-content pre{padding:14px;overflow:auto;border-radius:4px;background:#f5f5f5;border:1px solid #e4e4e4;font:.86em/1.6 Consolas,"Courier New",monospace;line-height:1.6!important}
             #${ID}-overlay .zwm-article-content code{font-family:Consolas,"Courier New",monospace;overflow-wrap:anywhere}
             #${ID}-overlay .zwm-article-content table{width:100%;border-collapse:collapse;margin:1em 0;font-size:.92em}
             #${ID}-overlay .zwm-article-content th,#${ID}-overlay .zwm-article-content td{padding:7px 9px;border:1px solid #d9d9d9;text-align:left}
@@ -805,6 +807,12 @@
         return parts.join(' · ') || '知乎内容';
     }
 
+    function stripInlineLineHeight(el) {
+        if (!el?.hasAttribute?.('style')) return;
+        el.style.removeProperty('line-height');
+        if (!el.style.length) el.removeAttribute('style');
+    }
+
     function cleanClone(node) {
         const clone = node.cloneNode(true);
         clone.querySelectorAll('script,style,iframe,object,embed,button,input,textarea,select,form,[contenteditable="true"],[aria-hidden="true"],[role="toolbar"],.ContentItem-actions,.RichContent-actions,.Comments-container,.CommentListV2').forEach(el => el.remove());
@@ -812,10 +820,12 @@
             el.style.maxHeight = 'none';
             el.style.overflow = 'visible';
         });
+        stripInlineLineHeight(clone);
         clone.querySelectorAll('*').forEach(el => {
             [...el.attributes].forEach(attr => {
                 if (attr.name.startsWith('on') || attr.name === 'srcset') el.removeAttribute(attr.name);
             });
+            stripInlineLineHeight(el);
         });
         clone.querySelectorAll('img').forEach(img => {
             const src = img.getAttribute('data-original') || img.getAttribute('data-actualsrc') || img.getAttribute('data-src') || img.getAttribute('src');
@@ -949,10 +959,12 @@
     function cleanCommentClone(node) {
         const clone = node.cloneNode(true);
         clone.querySelectorAll('button,input,textarea,select,form,svg,img,[role="button"],[contenteditable="true"],[class*="Avatar"],[class*="avatar"],[class*="VoteButton"],[class*="CommentItem-actions"],[class*="CommentItemV2-actions"],[class*="ShareMenu"],[class*="CommentEditor"]').forEach(el => el.remove());
+        stripInlineLineHeight(clone);
         clone.querySelectorAll('*').forEach(el => {
             [...el.attributes].forEach(attr => {
                 if (attr.name.startsWith('on') || attr.name === 'srcset') el.removeAttribute(attr.name);
             });
+            stripInlineLineHeight(el);
         });
         clone.querySelectorAll('a').forEach(a => {
             a.setAttribute('target', '_blank');
