@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         知乎 Word 文档模式
 // @namespace    https://github.com/licc-pai/zhihu-word-mode
-// @version      0.5.3
+// @version      0.6.0
 // @author       licc-pai
 // @license      MIT
 // @description  将知乎专栏、问题和回答，以及天涯帖子转换为 Word 365 风格的文档阅读界面
@@ -2013,7 +2013,7 @@
                     <label class="zwm-setting"><span>纸张宽度</span><input name="pageWidth" type="range" min="620" max="1100" step="20"><output></output></label>
                     <label class="zwm-setting"><span>主题</span><select name="theme"><option value="light">浅色</option><option value="dark">深色</option></select><output></output></label>
                     <label class="zwm-setting"><span>文档名</span><input name="docName" type="text" placeholder="文档1.docx"></label>
-                    <label class="zwm-setting"><span>文末评论</span><input name="includeComments" type="checkbox"></label>
+                    <label class="zwm-setting"><span>评论（仅知乎）</span><input name="includeComments" type="checkbox"></label>
                     <div class="zwm-settings-actions">
                         <button data-action="refresh">重新识别正文</button>
                         <button data-action="reset">恢复默认</button>

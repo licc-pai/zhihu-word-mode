@@ -1,15 +1,17 @@
 // ==UserScript==
 // @name         知乎 Word 文档模式
 // @namespace    https://github.com/licc-pai/zhihu-word-mode
-// @version      0.5.3
+// @version      0.6.0
 // @author       licc-pai
 // @license      MIT
-// @description  将知乎专栏、问题和回答转换为 Word 365 风格的文档阅读界面
+// @description  将知乎专栏、问题和回答，以及天涯帖子转换为 Word 365 风格的文档阅读界面
 // @homepageURL  https://github.com/licc-pai/zhihu-word-mode
 // @supportURL   https://github.com/licc-pai/zhihu-word-mode/issues
 // @match        https://zhihu.com/*
 // @match        https://www.zhihu.com/*
 // @match        https://zhuanlan.zhihu.com/*
+// @match        https://tianya.net/*
+// @match        https://www.tianya.net/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -21,7 +23,7 @@
     const STYLE_ID = `${ID}-style`;
     const STORE_KEY = `${ID}:settings`;
     const RETURN_KEY = `${ID}:return-answer`;
-    const DEFAULTS = { fontSize: 16, lineHeight: 1.9, pageWidth: 800, theme: 'light', zoom: 100, docName: '文档1.docx', includeComments: true };
+    const DEFAULTS = { fontSize: 16, lineHeight: 1.9, pageWidth: 800, theme: 'light', zoom: 100, docName: '文档1.docx', includeComments: true, navWidth: 260 };
     let settings = loadSettings();
     let overlay = null;
     let launcher = null;
@@ -44,6 +46,9 @@
     let bodyAbort = null;
     let answerBodyToken = 0;
     const API_PAGE_SIZE = 20;
+    let tianyaState = null;
+    const TIANYA_PAGE_SIZE = 50;
+    const TIANYA_TIMEOUT = 10000;
     const commentCache = new Map();
     const COMMENT_CACHE_LIMIT = 20;
     let commentToken = 0;
@@ -215,8 +220,10 @@
 
             /* ---------- 回答导航 ---------- */
             #${ID}-overlay .zwm-body{flex:1;min-height:0;display:flex}
-            #${ID}-overlay .zwm-nav{flex:0 0 240px;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--zwm-line);background:var(--zwm-chrome)}
+            #${ID}-overlay .zwm-nav{flex:0 0 var(--zwm-nav-width,260px);width:var(--zwm-nav-width,260px);min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--zwm-line);background:var(--zwm-chrome);position:relative}
             #${ID}-overlay .zwm-nav[hidden]{display:none}
+            #${ID}-overlay .zwm-nav-resizer{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
+            #${ID}-overlay .zwm-nav-resizer:hover,#${ID}-overlay .zwm-nav-resizer.zwm-dragging{background:linear-gradient(90deg,transparent,#b7c9c0,transparent)}
             #${ID}-overlay .zwm-nav-head{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--zwm-line);font:600 12px "Segoe UI","Microsoft YaHei",sans-serif;color:var(--zwm-ink)}
             #${ID}-overlay .zwm-nav-count{color:var(--zwm-muted);font-weight:400}
             #${ID}-overlay .zwm-nav-list{flex:1;min-height:0;overflow:auto;padding:6px}
@@ -226,6 +233,18 @@
             #${ID}-overlay .zwm-nav-author{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
             #${ID}-overlay .zwm-nav-excerpt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--zwm-muted)}
             #${ID}-overlay .zwm-nav-votes{display:block;margin-top:2px;color:var(--zwm-muted);font-size:10px}
+            #${ID}-overlay .zwm-tianya-filter{flex:0 0 auto;padding:8px 12px;border-bottom:1px solid var(--zwm-line);color:var(--zwm-muted);font-size:11px}
+            #${ID}-overlay .zwm-tianya-filter[hidden]{display:none}
+            #${ID}-overlay .zwm-tianya-filter label{display:flex;align-items:center;gap:6px;cursor:pointer}
+            #${ID}-overlay .zwm-tianya-filter input{accent-color:#2b579a}
+            #${ID}-overlay .zwm-tianya-toc-item{display:block;width:100%;text-align:left;padding:7px 9px;margin:0 0 2px;border:0;border-radius:4px;background:none;color:var(--zwm-ink);cursor:pointer;font:11px/1.5 "Segoe UI","Microsoft YaHei",sans-serif}
+            #${ID}-overlay .zwm-tianya-toc-item:hover{background:var(--zwm-hover)}
+            #${ID}-overlay .zwm-tianya-toc-item.zwm-active{background:#e8f0ec;box-shadow:inset 2px 0 #3f7f6c}
+            #${ID}-overlay .zwm-tianya-toc-line{display:flex;align-items:center;gap:6px;margin-bottom:1px}
+            #${ID}-overlay .zwm-tianya-toc-no{color:#3f7f6c;font-weight:600;font-variant-numeric:tabular-nums}
+            #${ID}-overlay .zwm-tianya-toc-author{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            #${ID}-overlay .zwm-tianya-toc-excerpt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--zwm-muted)}
+            #${ID}-overlay.zwm-dark .zwm-tianya-toc-item.zwm-active{background:#33413a;box-shadow:inset 2px 0 #6fa88f}
             #${ID}-overlay .zwm-nav-foot{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:8px;border-top:1px solid var(--zwm-line)}
             #${ID}-overlay .zwm-nav-foot[hidden]{display:none}
             #${ID}-overlay .zwm-nav-status{font-size:10px;line-height:1.4;color:var(--zwm-muted);word-break:break-all}
@@ -259,6 +278,27 @@
             #${ID}-overlay .zwm-article-content th,#${ID}-overlay .zwm-article-content td{padding:7px 9px;border:1px solid #d9d9d9;text-align:left}
             #${ID}-overlay .zwm-article-content th{background:#f3f3f3}
             #${ID}-overlay .zwm-article-content a{color:#0563c1}
+            #${ID}-overlay .zwm-tianya-floor{border-top:1px solid #eef0ea;margin-top:26px;padding-top:16px}
+            #${ID}-overlay .zwm-tianya-floor:first-of-type{border-top:0}
+            #${ID}-overlay .zwm-tianya-floor[data-sub="1"]{margin-left:26px;padding-left:14px;border-left:2px solid var(--zwm-line)}
+            #${ID}-overlay .zwm-tianya-floor-head{display:flex;align-items:center;gap:7px;margin-bottom:10px;font-size:11px;color:var(--zwm-muted);flex-wrap:wrap}
+            #${ID}-overlay .zwm-tianya-floor-no{padding:1px 6px;border-radius:3px;background:var(--zwm-hover);color:#3f7f6c;font-weight:600;font-variant-numeric:tabular-nums}
+            #${ID}-overlay .zwm-tianya-floor-author{font-weight:600;color:var(--zwm-ink)}
+            #${ID}-overlay .zwm-tianya-poster{padding:0 5px;border-radius:3px;background:var(--zwm-hover);color:#3f7f6c;font-size:10px;font-weight:600}
+            #${ID}-overlay .zwm-tianya-floor-time{color:var(--zwm-muted)}
+            #${ID}-overlay .zwm-tianya-floor-body p{margin:0 0 .72em;text-indent:2em;text-align:justify}
+            #${ID}-overlay .zwm-tianya-quote{margin:10px 0 12px;padding:8px 12px;background:var(--zwm-hover);border-left:3px solid var(--zwm-field-line);border-radius:0 3px 3px 0;color:var(--zwm-muted);font-size:13px;cursor:pointer}
+            #${ID}-overlay .zwm-tianya-quote-head{font-size:11px;color:#3f7f6c;margin-bottom:3px}
+            #${ID}-overlay .zwm-tianya-quote-body{max-height:7em;overflow:hidden}
+            #${ID}-overlay .zwm-tianya-quote.zwm-expanded .zwm-tianya-quote-body{max-height:none}
+            #${ID}-overlay .zwm-tianya-quote-body p{margin:0 0 .35em;text-indent:0}
+            #${ID}-overlay .zwm-tianya-deleted{margin-top:22px;padding:12px 14px;background:var(--zwm-hover);border-radius:4px;color:var(--zwm-muted);font-size:12px;text-align:center}
+            #${ID}-overlay .zwm-tianya-note{color:var(--zwm-muted);font-size:12px}
+            #${ID}-overlay .zwm-tianya-error{margin:40px auto;max-width:480px;text-align:center}
+            #${ID}-overlay .zwm-tianya-error-title{font-size:16px;margin:0 0 8px}
+            #${ID}-overlay .zwm-tianya-error-message{color:var(--zwm-muted);font-size:12px;margin:0 0 16px}
+            #${ID}-overlay .zwm-tianya-retry{height:28px;padding:0 16px;border:1px solid var(--zwm-field-line);border-radius:4px;background:var(--zwm-field);color:var(--zwm-ink);font-size:12px;cursor:pointer}
+            #${ID}-overlay .zwm-tianya-retry:hover{background:var(--zwm-hover)}
 
             /* ---------- 文末评论 ---------- */
             #${ID}-overlay .zwm-comments{margin-top:44px;padding-top:22px;border-top:1px solid var(--zwm-line);font-size:.94em;line-height:1.75}
@@ -333,13 +373,29 @@
                 #${ID}-overlay .zwm-page{padding:30px 22px}
                 #${ID}-overlay .zwm-body{position:relative}
                 #${ID}-overlay .zwm-nav{position:absolute;top:0;bottom:0;left:0;z-index:4;width:min(280px,85vw);box-shadow:2px 0 12px rgba(0,0,0,.25)}
+                #${ID}-overlay .zwm-nav-resizer{display:none}
                 #${ID}-overlay .zwm-docscroll{padding:10px 6px 40px}
             }
         `;
         (document.head || document.documentElement).appendChild(style);
     }
 
+    function isTianyaHost() {
+        return /(^|\.)tianya\.net$/i.test(location.hostname);
+    }
+
+    function parseTianyaThreadUrl(pathname = location.pathname) {
+        const match = pathname.match(/\/post-([a-zA-Z0-9]+)-(\d+)-(\d+)\.html/);
+        if (!match) return null;
+        return { boardAlias: match[1], postId: match[2], page: Math.max(1, Number(match[3])) };
+    }
+
+    function isTianyaThreadPage() {
+        return isTianyaHost() && Boolean(parseTianyaThreadUrl());
+    }
+
     function isRelevantPage() {
+        if (isTianyaHost()) return isTianyaThreadPage();
         return /^https:\/\/(www\.zhihu\.com|zhihu\.com|zhuanlan\.zhihu\.com)\//.test(location.href);
     }
 
@@ -1195,6 +1251,531 @@
         }
     }
 
+    function tianyaError(message, kind, status) {
+        const error = new Error(message);
+        error.kind = kind || 'http';
+        if (status) error.status = status;
+        return error;
+    }
+
+    function resetTianyaState() {
+        if (tianyaState?.abort) tianyaState.abort.abort();
+        tianyaState = null;
+    }
+
+    function initTianyaState(info) {
+        tianyaState = {
+            postId: info.postId,
+            boardAlias: info.boardAlias,
+            boardId: '',
+            boardName: '',
+            page: info.page,
+            totalPages: 0,
+            totalCount: 0,
+            post: null,
+            floors: [],
+            floorMap: new Map(),
+            loadedPids: new Set(),
+            onlyPoster: false,
+            loading: false,
+            ended: false,
+            error: '',
+            abort: null,
+            observer: null,
+            autoLock: false
+        };
+        return tianyaState;
+    }
+
+    async function fetchTianyaJson(url, signal) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIANYA_TIMEOUT);
+        const onAbort = () => controller.abort();
+        if (signal) {
+            if (signal.aborted) controller.abort();
+            else signal.addEventListener('abort', onAbort, { once: true });
+        }
+        try {
+            const response = await fetch(url, {
+                credentials: 'include',
+                headers: { 'x-requested-with': 'fetch', accept: 'application/json' },
+                signal: controller.signal
+            });
+            if (!response.ok) throw tianyaError(`HTTP ${response.status}`, 'http', response.status);
+            return await response.json();
+        } finally {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', onAbort);
+        }
+    }
+
+    async function fetchTianyaPost(postId, page, signal) {
+        const payload = await fetchTianyaJson(
+            `/api/bbs_post?postId=${encodeURIComponent(postId)}&page=${page}&perPage=${TIANYA_PAGE_SIZE}`,
+            signal
+        );
+        if (payload?.status === 'not_found') throw tianyaError('帖子不存在或已删除', 'not_found');
+        if (!payload || payload.status !== 'success') throw tianyaError('接口返回异常', 'malformed');
+        if (payload.post?.threadDeleted) throw tianyaError('帖子不存在或已删除', 'not_found');
+        if (!payload.post || !Array.isArray(payload.replies?.data) || !payload.replies.pagination) {
+            throw tianyaError('接口数据格式异常', 'malformed');
+        }
+        return payload;
+    }
+
+    async function fetchTianyaBoardName(boardId, signal) {
+        if (!boardId) return '';
+        try {
+            const payload = await fetchTianyaJson(
+                `/api/bbs_list?boardId=${encodeURIComponent(boardId)}&tab=default&page=1`,
+                signal
+            );
+            return payload?.status === 'success' ? (payload.boardName || '') : '';
+        } catch {
+            return '';
+        }
+    }
+
+    function appendTianyaText(parent, text) {
+        const pattern = /https?:\/\/[^\s<>"']+/g;
+        let last = 0;
+        let match;
+        while ((match = pattern.exec(text))) {
+            if (match.index > last) parent.appendChild(document.createTextNode(text.slice(last, match.index)));
+            const raw = match[0];
+            const url = raw.replace(/[.,;:!?)\]}，。；：！？）】]+$/, '');
+            const trailing = raw.slice(url.length);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('target', '_blank');
+            link.setAttribute('rel', 'noopener noreferrer');
+            link.textContent = url;
+            parent.appendChild(link);
+            if (trailing) parent.appendChild(document.createTextNode(trailing));
+            last = match.index + raw.length;
+        }
+        if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+    }
+
+    function tianyaTextToFragment(text) {
+        const fragment = document.createDocumentFragment();
+        const normalized = String(text || '').replace(/\r\n/g, '\n');
+        const blocks = normalized.split(/\n{2,}/);
+        for (const block of blocks) {
+            if (!block.trim()) continue;
+            const paragraph = document.createElement('p');
+            block.split('\n').forEach((line, index) => {
+                if (index) paragraph.appendChild(document.createElement('br'));
+                appendTianyaText(paragraph, line);
+            });
+            fragment.appendChild(paragraph);
+        }
+        return fragment;
+    }
+
+    function createTianyaFloorHead(pid, author, postTime, poster) {
+        const head = document.createElement('div');
+        head.className = 'zwm-tianya-floor-head';
+        const no = document.createElement('span');
+        no.className = 'zwm-tianya-floor-no';
+        no.textContent = pid;
+        const name = document.createElement('span');
+        name.className = 'zwm-tianya-floor-author';
+        name.textContent = author || '匿名用户';
+        const time = document.createElement('span');
+        time.className = 'zwm-tianya-floor-time';
+        time.textContent = postTime || '';
+        head.append(no, name);
+        if (poster) {
+            const badge = document.createElement('span');
+            badge.className = 'zwm-tianya-poster';
+            badge.textContent = '楼主';
+            head.appendChild(badge);
+        }
+        head.appendChild(time);
+        return head;
+    }
+
+    function createTianyaMainPostElement(state) {
+        const section = document.createElement('section');
+        section.className = 'zwm-tianya-floor zwm-tianya-main';
+        section.id = 'floor-0';
+        section.dataset.pid = '0';
+        section.dataset.poster = '1';
+        section.appendChild(createTianyaFloorHead('楼主', state.post.author, state.post.postTime, true));
+        const body = document.createElement('div');
+        body.className = 'zwm-tianya-floor-body';
+        body.appendChild(tianyaTextToFragment(state.post.content));
+        section.appendChild(body);
+        return section;
+    }
+
+    function createTianyaQuoteElement(floor, state) {
+        const quote = document.createElement('div');
+        quote.className = 'zwm-quote zwm-tianya-quote';
+        const head = document.createElement('div');
+        head.className = 'zwm-tianya-quote-head';
+        const body = document.createElement('div');
+        body.className = 'zwm-tianya-quote-body';
+        const quoted = state.floorMap.get(Number(floor.quotePid));
+        if (quoted && !quoted.deleted) {
+            head.textContent = `回复 #${quoted.pid} ${quoted.author || '匿名用户'}：`;
+            body.appendChild(tianyaTextToFragment(quoted.content));
+            quote.addEventListener('click', () => quote.classList.toggle('zwm-expanded'));
+        } else if (quoted?.deleted) {
+            head.textContent = `引用 #${floor.quotePid}（已删除）`;
+        } else {
+            head.textContent = `引用 #${floor.quotePid}（未加载）`;
+        }
+        quote.append(head, body);
+        return quote;
+    }
+
+    function createTianyaFloorElement(floor, state) {
+        const section = document.createElement('section');
+        section.className = 'zwm-tianya-floor';
+        section.id = `floor-${floor.pid}`;
+        section.dataset.pid = String(floor.pid);
+        section.dataset.poster = floor.author === state.post.author ? '1' : '0';
+        if (floor.quotePid) section.dataset.sub = '1';
+        if (floor.deleted) {
+            section.dataset.deleted = '1';
+            const placeholder = document.createElement('div');
+            placeholder.className = 'zwm-tianya-deleted';
+            placeholder.textContent = '该楼层已被删除';
+            section.appendChild(placeholder);
+            return section;
+        }
+        section.appendChild(createTianyaFloorHead(
+            `#${floor.pid}`,
+            floor.author,
+            floor.postTime,
+            floor.author === state.post.author
+        ));
+        const body = document.createElement('div');
+        body.className = 'zwm-tianya-floor-body';
+        body.appendChild(tianyaTextToFragment(floor.content));
+        section.appendChild(body);
+        if (floor.quotePid) {
+            section.appendChild(createTianyaQuoteElement(floor, state));
+        }
+        return section;
+    }
+
+    function appendTianyaFloors(floors) {
+        if (!overlay || !tianyaState) return;
+        const content = overlay.querySelector('.zwm-article-content');
+        if (!content) return;
+        for (const floor of floors) {
+            const pid = Number(floor.pid);
+            if (!pid || tianyaState.loadedPids.has(pid)) continue;
+            tianyaState.loadedPids.add(pid);
+            tianyaState.floors.push(floor);
+            tianyaState.floorMap.set(pid, floor);
+            content.appendChild(createTianyaFloorElement(floor, tianyaState));
+        }
+    }
+
+    function tianyaExcerpt(text, size = 42) {
+        return String(text || '').replace(/\s+/g, ' ').trim().slice(0, size);
+    }
+
+    function createTianyaTocItem({ pid, author, poster, excerpt }) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'zwm-tianya-toc-item';
+        item.dataset.pid = String(pid);
+        item.dataset.poster = poster ? '1' : '0';
+        const line = document.createElement('span');
+        line.className = 'zwm-tianya-toc-line';
+        const no = document.createElement('span');
+        no.className = 'zwm-tianya-toc-no';
+        no.textContent = String(pid) === '0' ? '楼主' : `#${pid}`;
+        const name = document.createElement('span');
+        name.className = 'zwm-tianya-toc-author';
+        name.textContent = author || '匿名用户';
+        line.append(no, name);
+        const excerptEl = document.createElement('span');
+        excerptEl.className = 'zwm-tianya-toc-excerpt';
+        excerptEl.textContent = excerpt || '（无正文摘要）';
+        item.append(line, excerptEl);
+        return item;
+    }
+
+    function updateTianyaTocCount() {
+        if (!overlay || !tianyaState) return;
+        const count = overlay.querySelector('.zwm-nav-count');
+        if (!count) return;
+        const visible = overlay.querySelectorAll('.zwm-tianya-toc-item:not([hidden])').length;
+        count.textContent = `(${visible})`;
+    }
+
+    function syncTianyaNavActive() {
+        if (!overlay || !tianyaState) return;
+        if (tianyaState.observer) {
+            tianyaState.observer.disconnect();
+            tianyaState.observer = null;
+        }
+        if (typeof IntersectionObserver === 'undefined') return;
+        const root = overlay.querySelector('.zwm-docscroll');
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                overlay.querySelectorAll('.zwm-tianya-toc-item').forEach(item => {
+                    item.classList.toggle('zwm-active', item.dataset.pid === entry.target.dataset.pid);
+                });
+            });
+        }, { root, rootMargin: '-15% 0px -75% 0px', threshold: 0 });
+        tianyaState.observer = observer;
+        overlay.querySelectorAll('.zwm-tianya-floor').forEach(el => observer.observe(el));
+    }
+
+    function renderTianyaNav() {
+        if (!overlay || !tianyaState) return;
+        const nav = overlay.querySelector('.zwm-nav');
+        const head = nav?.querySelector('.zwm-nav-head span');
+        const list = nav?.querySelector('.zwm-nav-list');
+        const toggle = overlay.querySelector('.zwm-navtoggle');
+        const filter = overlay.querySelector('.zwm-tianya-filter');
+        const checkbox = overlay.querySelector('.zwm-tianya-only-poster');
+        const foot = overlay.querySelector('.zwm-nav-foot');
+        if (!nav || !head || !list) return;
+        head.textContent = '楼层';
+        if (toggle) {
+            toggle.hidden = false;
+            toggle.title = '楼层目录';
+            toggle.classList.toggle('zwm-on', navOpen);
+        }
+        nav.hidden = !navOpen;
+        if (filter) filter.hidden = false;
+        if (checkbox) checkbox.checked = tianyaState.onlyPoster;
+        list.replaceChildren();
+        if (tianyaState.post) {
+            list.appendChild(createTianyaTocItem({
+                pid: 0,
+                author: tianyaState.post.author,
+                poster: true,
+                excerpt: tianyaExcerpt(tianyaState.post.content)
+            }));
+        }
+        for (const floor of tianyaState.floors) {
+            if (floor.quotePid) continue;
+            list.appendChild(createTianyaTocItem({
+                pid: floor.pid,
+                author: floor.author,
+                poster: floor.author === tianyaState.post.author,
+                excerpt: tianyaExcerpt(floor.content)
+            }));
+        }
+        updateTianyaTocCount();
+        syncTianyaNavActive();
+        updateTianyaFooter();
+    }
+
+    function appendTianyaTocItems(floors) {
+        if (!overlay || !tianyaState) return;
+        const list = overlay.querySelector('.zwm-nav-list');
+        if (!list) return;
+        for (const floor of floors) {
+            if (floor.quotePid) continue;
+            list.appendChild(createTianyaTocItem({
+                pid: floor.pid,
+                author: floor.author,
+                poster: floor.author === tianyaState.post.author,
+                excerpt: tianyaExcerpt(floor.content)
+            }));
+        }
+        updateTianyaTocCount();
+    }
+
+    function setTianyaOnlyPoster(value) {
+        if (!overlay || !tianyaState) return;
+        tianyaState.onlyPoster = Boolean(value);
+        const checkbox = overlay.querySelector('.zwm-tianya-only-poster');
+        if (checkbox) checkbox.checked = tianyaState.onlyPoster;
+        overlay.querySelectorAll('.zwm-tianya-floor').forEach(el => {
+            if (el.classList.contains('zwm-tianya-main')) {
+                el.hidden = false;
+                return;
+            }
+            el.hidden = tianyaState.onlyPoster && el.dataset.poster !== '1';
+        });
+        overlay.querySelectorAll('.zwm-tianya-toc-item').forEach(item => {
+            item.hidden = tianyaState.onlyPoster && item.dataset.poster !== '1';
+        });
+        updateTianyaTocCount();
+        updateStats();
+    }
+
+    function updateTianyaFooter() {
+        if (!overlay || !tianyaState) return;
+        const foot = overlay.querySelector('.zwm-nav-foot');
+        const status = foot?.querySelector('.zwm-nav-status');
+        const button = foot?.querySelector('.zwm-nav-load');
+        if (!foot || !status || !button) return;
+        foot.hidden = false;
+        const loaded = tianyaState.loadedPids.size;
+        const total = tianyaState.totalCount;
+        if (tianyaState.error) status.textContent = tianyaState.error;
+        else if (tianyaState.loading) status.textContent = '正在加载楼层…';
+        else if (tianyaState.ended) status.textContent = `已加载全部 ${loaded} 楼`;
+        else status.textContent = `已加载 ${loaded} / ${total || '?'} 楼`;
+        button.hidden = tianyaState.ended;
+        button.disabled = tianyaState.loading;
+        button.textContent = tianyaState.loading ? '加载中…' : (tianyaState.error ? '重试' : '加载更多楼层');
+    }
+
+    async function loadTianyaPage({ scroll = false, auto = false } = {}) {
+        const state = tianyaState;
+        if (!state || state.loading || state.ended) return;
+        const nextPage = state.page + 1;
+        if (state.totalPages && nextPage > state.totalPages) {
+            state.ended = true;
+            updateTianyaFooter();
+            return;
+        }
+        state.loading = true;
+        state.error = '';
+        updateTianyaFooter();
+        const controller = new AbortController();
+        state.abort = controller;
+        try {
+            const payload = await fetchTianyaPost(state.postId, nextPage, controller.signal);
+            if (tianyaState !== state) return;
+            state.page = payload.replies.pagination.currentPage || nextPage;
+            state.totalPages = Number(payload.replies.pagination.totalPages) || state.totalPages;
+            state.totalCount = Number(payload.replies.pagination.totalCount) || state.totalCount;
+            const fresh = payload.replies.data.filter(floor => !state.loadedPids.has(Number(floor.pid)));
+            appendTianyaFloors(payload.replies.data);
+            appendTianyaTocItems(fresh);
+            if (state.onlyPoster) setTianyaOnlyPoster(true);
+            state.ended = (state.totalPages > 0 && state.page >= state.totalPages) || payload.replies.data.length === 0;
+            if (scroll && fresh.length) {
+                const first = overlay?.querySelector(`#floor-${fresh[0].pid}`);
+                first?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            }
+            updateStats();
+        } catch (error) {
+            if (tianyaState !== state) return;
+            if (error?.name !== 'AbortError') state.error = describeTianyaError(error);
+        } finally {
+            if (tianyaState === state) {
+                state.loading = false;
+                if (state.abort === controller) state.abort = null;
+                updateTianyaFooter();
+            }
+        }
+    }
+
+    function updateTianyaHeader(state) {
+        if (!overlay || !state?.post) return;
+        const title = overlay.querySelector('.zwm-document-title');
+        if (title) title.textContent = state.post.title || '天涯帖子';
+        const meta = overlay.querySelector('.zwm-document-meta');
+        if (meta) {
+            const board = state.boardName || state.boardAlias || '天涯';
+            const clicks = Number(state.post.clickCount) || 0;
+            const clickText = clicks ? ` · ${(clicks / 10000).toFixed(1)} 万点击` : '';
+            meta.textContent = `${board} · ${state.post.author || ''} · ${state.post.postTime || ''}${clickText}`;
+        }
+    }
+
+    function describeTianyaError(error) {
+        if (error?.kind === 'not_found') return '帖子不存在或已删除';
+        if (error?.kind === 'http' && (error.status === 401 || error.status === 403)) {
+            return '天涯接口不可用（可能需要登录或被风控）';
+        }
+        if (error?.status === 429) return '请求过于频繁，请稍后再试';
+        if (error?.name === 'AbortError') return '加载超时，可重试';
+        if (error?.kind === 'malformed') return '天涯接口数据异常，可重试';
+        return `加载天涯帖子失败：${error?.message || '未知错误'}`;
+    }
+
+    function renderTianyaError(error) {
+        if (!overlay) return;
+        const content = overlay.querySelector('.zwm-article-content');
+        if (!content) return;
+        const nav = overlay.querySelector('.zwm-nav');
+        if (nav) nav.hidden = true;
+        const navToggle = overlay.querySelector('.zwm-navtoggle');
+        if (navToggle) navToggle.hidden = true;
+        const filter = overlay.querySelector('.zwm-tianya-filter');
+        if (filter) filter.hidden = true;
+        const box = document.createElement('div');
+        box.className = 'zwm-tianya-error';
+        const title = document.createElement('p');
+        title.className = 'zwm-tianya-error-title';
+        title.textContent = '天涯帖子加载失败';
+        const message = document.createElement('p');
+        message.className = 'zwm-tianya-error-message';
+        message.textContent = describeTianyaError(error);
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'zwm-tianya-retry';
+        retry.textContent = '重试';
+        retry.addEventListener('click', () => renderTianyaDocument());
+        box.append(title, message, retry);
+        content.replaceChildren(box);
+        updateStats();
+    }
+
+    async function renderTianyaDocument() {
+        const info = parseTianyaThreadUrl();
+        if (!info) return false;
+        resetTianyaState();
+        resetAnswerFeed();
+        const app = createOverlay();
+        const state = initTianyaState(info);
+        currentAnswer = null;
+        answers = [];
+        openAnswerId = null;
+        app.querySelector('.zwm-document-title').textContent = '天涯帖子';
+        app.querySelector('.zwm-document-meta').textContent = '正在加载…';
+        const content = app.querySelector('.zwm-article-content');
+        const loading = document.createElement('p');
+        loading.className = 'zwm-tianya-note';
+        loading.textContent = '正在加载天涯帖子…';
+        content.replaceChildren(loading);
+        app.querySelector('.zwm-comments')?.remove();
+        const nav = app.querySelector('.zwm-nav');
+        if (nav) nav.hidden = true;
+        const navToggle = app.querySelector('.zwm-navtoggle');
+        if (navToggle) navToggle.hidden = true;
+        const filter = app.querySelector('.zwm-tianya-filter');
+        if (filter) filter.hidden = true;
+        app.classList.add(`${ID}-visible`);
+        isOpen = true;
+        applySettings();
+        document.documentElement.style.overflow = 'hidden';
+        const controller = new AbortController();
+        state.abort = controller;
+        try {
+            const payload = await fetchTianyaPost(state.postId, state.page, controller.signal);
+            if (tianyaState !== state) return false;
+            state.post = payload.post;
+            state.boardId = payload.post.boardId || '';
+            state.page = payload.replies.pagination.currentPage || state.page;
+            state.totalPages = Number(payload.replies.pagination.totalPages) || 0;
+            state.totalCount = Number(payload.replies.pagination.totalCount) || 0;
+            state.ended = state.totalPages > 0 && state.page >= state.totalPages;
+            updateTianyaHeader(state);
+            content.replaceChildren();
+            content.appendChild(createTianyaMainPostElement(state));
+            appendTianyaFloors(payload.replies.data);
+            renderTianyaNav();
+            state.boardName = await fetchTianyaBoardName(state.boardId, controller.signal);
+            if (tianyaState !== state) return false;
+            updateTianyaHeader(state);
+            applySettings();
+            updateStats();
+            return true;
+        } catch (error) {
+            if (tianyaState !== state) return false;
+            renderTianyaError(error);
+            return false;
+        }
+    }
+
     function createOverlay() {
         if (overlay?.isConnected) return overlay;
 
@@ -1384,11 +1965,15 @@
             <div class="zwm-body">
                 <aside class="zwm-nav" hidden>
                     <div class="zwm-nav-head"><span>回答</span><span class="zwm-nav-count"></span></div>
+                    <div class="zwm-tianya-filter" hidden>
+                        <label><input type="checkbox" class="zwm-tianya-only-poster">只看楼主</label>
+                    </div>
                     <div class="zwm-nav-list"></div>
                     <div class="zwm-nav-foot" hidden>
                         <span class="zwm-nav-status"></span>
                         <button class="zwm-nav-load" type="button">加载更多回答</button>
                     </div>
+                    <div class="zwm-nav-resizer" title="拖动调整目录宽度，双击恢复"></div>
                 </aside>
                 <div class="zwm-docscroll">
                     <div class="zwm-page">
@@ -1426,7 +2011,7 @@
                     <label class="zwm-setting"><span>纸张宽度</span><input name="pageWidth" type="range" min="620" max="1100" step="20"><output></output></label>
                     <label class="zwm-setting"><span>主题</span><select name="theme"><option value="light">浅色</option><option value="dark">深色</option></select><output></output></label>
                     <label class="zwm-setting"><span>文档名</span><input name="docName" type="text" placeholder="文档1.docx"></label>
-                    <label class="zwm-setting"><span>文末评论</span><input name="includeComments" type="checkbox"></label>
+                    <label class="zwm-setting"><span>评论（仅知乎）</span><input name="includeComments" type="checkbox"></label>
                     <div class="zwm-settings-actions">
                         <button data-action="refresh">重新识别正文</button>
                         <button data-action="reset">恢复默认</button>
@@ -1446,6 +2031,13 @@
         });
 
         overlay.querySelector('.zwm-nav-list').addEventListener('click', event => {
+            const tianyaItem = event.target.closest('.zwm-tianya-toc-item');
+            if (tianyaItem) {
+                const target = document.getElementById(`floor-${tianyaItem.dataset.pid}`);
+                if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                if (window.matchMedia('(max-width: 760px)').matches) setNavOpen(false);
+                return;
+            }
             const item = event.target.closest('.zwm-nav-item');
             if (!item) return;
             const answer = answers.find(entry => entry.key === item.dataset.answerKey);
@@ -1454,12 +2046,61 @@
             if (window.matchMedia('(max-width: 760px)').matches) setNavOpen(false);
         });
 
-        overlay.querySelector('.zwm-nav-load').addEventListener('click', loadAnswersPage);
+        overlay.querySelector('.zwm-tianya-only-poster').addEventListener('change', event => {
+            setTianyaOnlyPoster(event.target.checked);
+        });
+
+        overlay.querySelector('.zwm-nav-load').addEventListener('click', () => {
+            if (isTianyaThreadPage()) loadTianyaPage({ scroll: true });
+            else loadAnswersPage();
+        });
 
         const navList = overlay.querySelector('.zwm-nav-list');
         navList.addEventListener('scroll', () => {
+            if (isTianyaThreadPage()) return;
             if (navList.scrollHeight <= navList.clientHeight + 40) return;
             if (navList.scrollTop + navList.clientHeight >= navList.scrollHeight - 40) loadAnswersPage({ auto: true });
+        });
+
+        const docscroll = overlay.querySelector('.zwm-docscroll');
+        docscroll.addEventListener('scroll', () => {
+            if (!isTianyaThreadPage() || !tianyaState) return;
+            const nearBottom = docscroll.scrollTop + docscroll.clientHeight >= docscroll.scrollHeight - 200;
+            if (!nearBottom) {
+                if (docscroll.scrollTop + docscroll.clientHeight < docscroll.scrollHeight - 400) {
+                    tianyaState.autoLock = false;
+                }
+                return;
+            }
+            if (docscroll.scrollTop <= 0) return;
+            if (tianyaState.loading || tianyaState.ended || tianyaState.error) return;
+            if (tianyaState.autoLock) return;
+            tianyaState.autoLock = true;
+            loadTianyaPage({ auto: true });
+        });
+
+        const navResizer = overlay.querySelector('.zwm-nav-resizer');
+        let navDragging = false;
+        navResizer.addEventListener('pointerdown', event => {
+            if (window.matchMedia('(max-width: 760px)').matches) return;
+            navDragging = true;
+            navResizer.classList.add('zwm-dragging');
+            try { navResizer.setPointerCapture(event.pointerId); } catch {}
+            event.preventDefault();
+        });
+        window.addEventListener('pointermove', event => {
+            if (!navDragging) return;
+            applyNavWidth(event.clientX);
+        });
+        window.addEventListener('pointerup', () => {
+            if (!navDragging) return;
+            navDragging = false;
+            navResizer.classList.remove('zwm-dragging');
+            saveSettings();
+        });
+        navResizer.addEventListener('dblclick', () => {
+            applyNavWidth(260);
+            saveSettings();
         });
 
         overlay.querySelectorAll('.zwm-tab').forEach(tab => {
@@ -1514,6 +2155,7 @@
     }
 
     function navAvailable() {
+        if (isTianyaThreadPage()) return Boolean(tianyaState?.floors?.length);
         return answers.length > 1 || Boolean(apiState?.qid);
     }
 
@@ -1541,6 +2183,12 @@
 
     function renderNavList({ preserveScroll = false } = {}) {
         if (!overlay) return;
+        const head = overlay.querySelector('.zwm-nav-head span');
+        if (head) head.textContent = '回答';
+        const filter = overlay.querySelector('.zwm-tianya-filter');
+        if (filter) filter.hidden = true;
+        const navToggle = overlay.querySelector('.zwm-navtoggle');
+        if (navToggle) navToggle.title = '回答导航窗格';
         const nav = overlay.querySelector('.zwm-nav');
         const list = nav?.querySelector('.zwm-nav-list');
         const count = nav?.querySelector('.zwm-nav-count');
@@ -1771,6 +2419,7 @@
     function renderDocument() {
         if (!isOpen) openScrollY = window.scrollY;
         const returnId = takeReturnAnswer();
+        if (isTianyaThreadPage()) return renderTianyaDocument();
         if (isQuestionPage()) {
             answers = rebuildAnswers();
             const qid = currentQuestionId() || questionIdFromAnswers(answers);
@@ -1793,11 +2442,19 @@
         return openArticleDocument();
     }
 
+    function applyNavWidth(width) {
+        const value = Math.min(420, Math.max(200, Number(width) || 260));
+        settings.navWidth = value;
+        if (overlay) overlay.style.setProperty('--zwm-nav-width', `${value}px`);
+        return value;
+    }
+
     function applySettings() {
         if (!overlay) return;
         overlay.style.setProperty('--zwm-font-size', `${settings.fontSize}px`);
         overlay.style.setProperty('--zwm-line-height', String(settings.lineHeight));
         overlay.style.setProperty('--zwm-page-width', `${settings.pageWidth}px`);
+        overlay.style.setProperty('--zwm-nav-width', `${settings.navWidth || 260}px`);
         overlay.classList.toggle('zwm-dark', settings.theme === 'dark');
         const page = overlay.querySelector('.zwm-page');
         if (page) page.style.zoom = settings.zoom / 100;
@@ -1864,6 +2521,7 @@
     function closeMode(options = {}) {
         const restoreScroll = options.restoreScroll !== false;
         cancelPendingAnswer();
+        resetTianyaState();
         commentToken += 1;
         restorePageIdentity();
         const answer = currentAnswer;
