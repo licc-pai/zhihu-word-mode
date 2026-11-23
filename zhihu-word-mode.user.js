@@ -275,6 +275,11 @@
             #${ID}-overlay .zwm-tianya-poster{padding:0 5px;border-radius:3px;background:var(--zwm-hover);color:#3f7f6c;font-size:10px;font-weight:600}
             #${ID}-overlay .zwm-tianya-floor-time{color:var(--zwm-muted)}
             #${ID}-overlay .zwm-tianya-floor-body p{margin:0 0 .72em;text-indent:2em;text-align:justify}
+            #${ID}-overlay .zwm-tianya-quote{margin:10px 0 12px;padding:8px 12px;background:var(--zwm-hover);border-left:3px solid var(--zwm-field-line);border-radius:0 3px 3px 0;color:var(--zwm-muted);font-size:13px;cursor:pointer}
+            #${ID}-overlay .zwm-tianya-quote-head{font-size:11px;color:#3f7f6c;margin-bottom:3px}
+            #${ID}-overlay .zwm-tianya-quote-body{max-height:7em;overflow:hidden}
+            #${ID}-overlay .zwm-tianya-quote.zwm-expanded .zwm-tianya-quote-body{max-height:none}
+            #${ID}-overlay .zwm-tianya-quote-body p{margin:0 0 .35em;text-indent:0}
             #${ID}-overlay .zwm-tianya-deleted{margin-top:22px;padding:12px 14px;background:var(--zwm-hover);border-radius:4px;color:var(--zwm-muted);font-size:12px;text-align:center}
             #${ID}-overlay .zwm-tianya-note{color:var(--zwm-muted);font-size:12px}
             #${ID}-overlay .zwm-tianya-error{margin:40px auto;max-width:480px;text-align:center}
@@ -1390,6 +1395,27 @@
         return section;
     }
 
+    function createTianyaQuoteElement(floor, state) {
+        const quote = document.createElement('div');
+        quote.className = 'zwm-quote zwm-tianya-quote';
+        const head = document.createElement('div');
+        head.className = 'zwm-tianya-quote-head';
+        const body = document.createElement('div');
+        body.className = 'zwm-tianya-quote-body';
+        const quoted = state.floorMap.get(Number(floor.quotePid));
+        if (quoted && !quoted.deleted) {
+            head.textContent = `回复 #${quoted.pid} ${quoted.author || '匿名用户'}：`;
+            body.appendChild(tianyaTextToFragment(quoted.content));
+            quote.addEventListener('click', () => quote.classList.toggle('zwm-expanded'));
+        } else if (quoted?.deleted) {
+            head.textContent = `引用 #${floor.quotePid}（已删除）`;
+        } else {
+            head.textContent = `引用 #${floor.quotePid}（未加载）`;
+        }
+        quote.append(head, body);
+        return quote;
+    }
+
     function createTianyaFloorElement(floor, state) {
         const section = document.createElement('section');
         section.className = 'zwm-tianya-floor';
@@ -1415,6 +1441,9 @@
         body.className = 'zwm-tianya-floor-body';
         body.appendChild(tianyaTextToFragment(floor.content));
         section.appendChild(body);
+        if (floor.quotePid) {
+            section.appendChild(createTianyaQuoteElement(floor, state));
+        }
         return section;
     }
 
