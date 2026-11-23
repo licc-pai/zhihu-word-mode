@@ -25,7 +25,7 @@
     const STYLE_ID = `${ID}-style`;
     const STORE_KEY = `${ID}:settings`;
     const RETURN_KEY = `${ID}:return-answer`;
-    const DEFAULTS = { fontSize: 16, lineHeight: 1.9, pageWidth: 800, theme: 'light', zoom: 100, docName: '文档1.docx', includeComments: true };
+    const DEFAULTS = { fontSize: 16, lineHeight: 1.9, pageWidth: 800, theme: 'light', zoom: 100, docName: '文档1.docx', includeComments: true, navWidth: 260 };
     let settings = loadSettings();
     let overlay = null;
     let launcher = null;
@@ -222,8 +222,10 @@
 
             /* ---------- 回答导航 ---------- */
             #${ID}-overlay .zwm-body{flex:1;min-height:0;display:flex}
-            #${ID}-overlay .zwm-nav{flex:0 0 240px;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--zwm-line);background:var(--zwm-chrome)}
+            #${ID}-overlay .zwm-nav{flex:0 0 var(--zwm-nav-width,260px);width:var(--zwm-nav-width,260px);min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--zwm-line);background:var(--zwm-chrome);position:relative}
             #${ID}-overlay .zwm-nav[hidden]{display:none}
+            #${ID}-overlay .zwm-nav-resizer{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
+            #${ID}-overlay .zwm-nav-resizer:hover,#${ID}-overlay .zwm-nav-resizer.zwm-dragging{background:linear-gradient(90deg,transparent,#b7c9c0,transparent)}
             #${ID}-overlay .zwm-nav-head{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--zwm-line);font:600 12px "Segoe UI","Microsoft YaHei",sans-serif;color:var(--zwm-ink)}
             #${ID}-overlay .zwm-nav-count{color:var(--zwm-muted);font-weight:400}
             #${ID}-overlay .zwm-nav-list{flex:1;min-height:0;overflow:auto;padding:6px}
@@ -373,6 +375,7 @@
                 #${ID}-overlay .zwm-page{padding:30px 22px}
                 #${ID}-overlay .zwm-body{position:relative}
                 #${ID}-overlay .zwm-nav{position:absolute;top:0;bottom:0;left:0;z-index:4;width:min(280px,85vw);box-shadow:2px 0 12px rgba(0,0,0,.25)}
+                #${ID}-overlay .zwm-nav-resizer{display:none}
                 #${ID}-overlay .zwm-docscroll{padding:10px 6px 40px}
             }
         `;
@@ -1972,6 +1975,7 @@
                         <span class="zwm-nav-status"></span>
                         <button class="zwm-nav-load" type="button">加载更多回答</button>
                     </div>
+                    <div class="zwm-nav-resizer" title="拖动调整目录宽度，双击恢复"></div>
                 </aside>
                 <div class="zwm-docscroll">
                     <div class="zwm-page">
@@ -2075,6 +2079,30 @@
             if (tianyaState.autoLock) return;
             tianyaState.autoLock = true;
             loadTianyaPage({ auto: true });
+        });
+
+        const navResizer = overlay.querySelector('.zwm-nav-resizer');
+        let navDragging = false;
+        navResizer.addEventListener('pointerdown', event => {
+            if (window.matchMedia('(max-width: 760px)').matches) return;
+            navDragging = true;
+            navResizer.classList.add('zwm-dragging');
+            try { navResizer.setPointerCapture(event.pointerId); } catch {}
+            event.preventDefault();
+        });
+        window.addEventListener('pointermove', event => {
+            if (!navDragging) return;
+            applyNavWidth(event.clientX);
+        });
+        window.addEventListener('pointerup', () => {
+            if (!navDragging) return;
+            navDragging = false;
+            navResizer.classList.remove('zwm-dragging');
+            saveSettings();
+        });
+        navResizer.addEventListener('dblclick', () => {
+            applyNavWidth(260);
+            saveSettings();
         });
 
         overlay.querySelectorAll('.zwm-tab').forEach(tab => {
@@ -2416,11 +2444,19 @@
         return openArticleDocument();
     }
 
+    function applyNavWidth(width) {
+        const value = Math.min(420, Math.max(200, Number(width) || 260));
+        settings.navWidth = value;
+        if (overlay) overlay.style.setProperty('--zwm-nav-width', `${value}px`);
+        return value;
+    }
+
     function applySettings() {
         if (!overlay) return;
         overlay.style.setProperty('--zwm-font-size', `${settings.fontSize}px`);
         overlay.style.setProperty('--zwm-line-height', String(settings.lineHeight));
         overlay.style.setProperty('--zwm-page-width', `${settings.pageWidth}px`);
+        overlay.style.setProperty('--zwm-nav-width', `${settings.navWidth || 260}px`);
         overlay.classList.toggle('zwm-dark', settings.theme === 'dark');
         const page = overlay.querySelector('.zwm-page');
         if (page) page.style.zoom = settings.zoom / 100;
